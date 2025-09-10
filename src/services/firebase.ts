@@ -313,7 +313,7 @@ export class FirebaseService {
   // Upload part image with part code as filename (for Take Photo page)
   static async uploadPartImageWithCode(file: File, partCode: string): Promise<string> {
     try {
-      const imageRef = storageRef(storage, `parts/${partCode}.png`);
+      const imageRef = storageRef(storage, `${partCode}.png`);
       const snapshot = await uploadBytes(imageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       return downloadURL;
