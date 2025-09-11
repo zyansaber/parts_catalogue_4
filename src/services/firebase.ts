@@ -289,7 +289,7 @@ export class FirebaseService {
 
   static async uploadPartApplicationImage(file: File, applicationId: string): Promise<string> {
     try {
-      const imageRef = storageRef(storage, applicationId + '.png');
+      const imageRef = storageRef(storage, applicationId + '.png'); // ROOT
       const snapshot = await uploadBytes(imageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       return downloadURL;
@@ -301,20 +301,20 @@ export class FirebaseService {
 
   static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
     try {
-      // Read old file from ROOT
+      // 1) Read old file from ROOT
       const oldRef = storageRef(storage, applicationId + '.png');
       const oldUrl = await getDownloadURL(oldRef);
       const resp = await fetch(oldUrl);
       const blob = await resp.blob();
 
-      // Write new file to ROOT
+      // 2) Write new file to ROOT
       const newRef = storageRef(storage, partCode + '.png');
       await uploadBytes(newRef, blob);
 
-      // Best-effort delete of old file
+      // 3) Delete old file (best effort)
       try { await deleteObject(oldRef); } catch (_) {}
 
-      // Update DB imageUrl with new URL
+      // 4) Update DB imageUrl to the new URL
       const newUrl = await getDownloadURL(newRef);
       const appRef = ref(database, `partApplications/${applicationId}`);
       const snap = await get(appRef);
