@@ -299,13 +299,17 @@ export class FirebaseService {
     }
   }
 
+  // use SDK-only path: getBytes -> uploadBytes -> deleteObject -> update DB
   static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
     try {
       const oldRef = storageRef(storage, applicationId + '.png'); // ROOT
       const bytes = await getBytes(oldRef); // Avoid CORS
+
       const newRef = storageRef(storage, partCode + '.png');     // ROOT
       await uploadBytes(newRef, bytes);
+
       try { await deleteObject(oldRef); } catch {}
+
       const newUrl = await getDownloadURL(newRef);
       const appRef = ref(database, `partApplications/${applicationId}`);
       const snap = await get(appRef);
