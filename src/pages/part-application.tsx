@@ -172,15 +172,14 @@ export default function PartApplicationPage() {
       // Update application status and part code
       await FirebaseService.approvePartApplication(approveDialog.application.id, partCode.trim());
       
-      await FirebaseService.approvePartApplication(approveDialog.application.id, partCode.trim());
-      await FirebaseService.renamePartApplicationImage(approveDialog.application.id, partCode.trim()); // ✅ 总是执行
-      await loadApplications();
+      // Rename the application image to use the part code as filename
+      // This will automatically rename applicationId.png to partCode.png in Firebase Storage
+      await FirebaseService.renamePartApplicationImage(approveDialog.application.id, partCode.trim());
 
-
-      // Reload applications
+      // Reload applications to reflect the changes
       await loadApplications();
       
-      showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}`);
+      showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. Image renamed to ${partCode}.png`);
       setApproveDialog({ open: false, application: null });
       setPartCode('');
     } catch (error) {
@@ -545,9 +544,12 @@ export default function PartApplicationPage() {
                 id="partCode"
                 value={partCode}
                 onChange={(e) => setPartCode(e.target.value)}
-                placeholder="Enter part code"
+                placeholder="Enter part code (e.g., ABC123)"
                 required
               />
+              <p className="text-xs text-gray-500 mt-1">
+                The application image will be automatically renamed to {partCode || 'partCode'}.png
+              </p>
             </div>
             <div className="flex justify-end space-x-2">
               <Button 
@@ -571,7 +573,7 @@ export default function PartApplicationPage() {
                 ) : (
                   <>
                     <CheckCircle className="h-4 w-4 mr-2" />
-                    Approve
+                    Approve & Rename Image
                   </>
                 )}
               </Button>
