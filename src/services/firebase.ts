@@ -1,6 +1,6 @@
 import { database, storage } from '@/lib/firebase';
 import { ref, get, push, set, query, orderByChild, limitToFirst, startAt } from 'firebase/database';
-import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject, getBytes } from 'firebase/storage';
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Part, BoMComponent, PartApplication } from '@/types';
 
 export class FirebaseService {
@@ -289,7 +289,7 @@ export class FirebaseService {
 
   static async uploadPartApplicationImage(file: File, applicationId: string): Promise<string> {
     try {
-      const imageRef = storageRef(storage, applicationId + '.png'); // ROOT
+      const imageRef = storageRef(storage, applicationId + '.png');
       const snapshot = await uploadBytes(imageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       return downloadURL;
@@ -299,26 +299,61 @@ export class FirebaseService {
     }
   }
 
-  // use SDK-only path: getBytes -> uploadBytes -> deleteObject -> update DB
+  // 修改后的重命名方法 - 使用fetch而不是getBytes来避免CORS问题
   static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
     try {
-      const oldRef = storageRef(storage, applicationId + '.png'); // ROOT
-      const bytes = await getBytes(oldRef); // Avoid CORS
-
-      const newRef = storageRef(storage, partCode + '.png');     // ROOT
-      await uploadBytes(newRef, bytes);
-
-      try { await deleteObject(oldRef); } catch {}
-
-      const newUrl = await getDownloadURL(newRef);
+      console.log(`Starting image rename from ${applicationId} to ${partCode}`);
+      
+      // 获取当前application的数据以获取imageUrl
       const appRef = ref(database, `partApplications/${applicationId}`);
-      const snap = await get(appRef);
-      if (snap.exists()) {
-        const current = snap.val();
-        await set(appRef, { ...current, imageUrl: newUrl });
-      } else {
-        await set(appRef, { imageUrl: newUrl });
+      const appSnapshot = await get(appRef);
+      
+      if (!appSnapshot.exists()) {
+        throw new Error('Application not found');
       }
+      
+      const appData = appSnapshot.val();
+      const currentImageUrl = appData.imageUrl;
+      
+      if (!currentImageUrl) {
+        console.log('No image URL found, skipping rename');
+        return;
+      }
+
+      // 使用fetch获取图片数据（避免CORS问题）
+      const response = await fetch(currentImageUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status}`);
+      }
+      
+      const imageBlob = await response.blob();
+      
+      // 创建新的文件引用
+      const newImageRef = storageRef(storage, `${partCode}.png`);
+      
+      // 上传新图片
+      const uploadSnapshot = await uploadBytes(newImageRef, imageBlob);
+      const newImageUrl = await getDownloadURL(uploadSnapshot.ref);
+      
+      // 更新数据库中的imageUrl
+      const updatedData = {
+        ...appData,
+        imageUrl: newImageUrl
+      };
+      await set(appRef, updatedData);
+      
+      // 尝试删除旧图片（如果删除失败也不影响整个流程）
+      try {
+        const oldImageRef = storageRef(storage, `${applicationId}.png`);
+        await deleteObject(oldImageRef);
+        console.log(`Successfully deleted old image: ${applicationId}.png`);
+      } catch (deleteError) {
+        console.warn(`Failed to delete old image ${applicationId}.png:`, deleteError);
+        // 不抛出错误，因为重命名已经成功
+      }
+      
+      console.log(`Successfully renamed image from ${applicationId}.png to ${partCode}.png`);
+      
     } catch (error) {
       console.error('Error renaming image:', error);
       throw error;
