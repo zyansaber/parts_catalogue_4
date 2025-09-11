@@ -301,24 +301,20 @@ export class FirebaseService {
 
   static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
     try {
-      // 1) Read the old file from Storage: partApplications/{APPID}.png
+      // 1) Read old file from Storage (partApplications/{APPID}.png)
       const oldRef = storageRef(storage, `partApplications/${applicationId}.png`);
       const oldUrl = await getDownloadURL(oldRef);
-      const response = await fetch(oldUrl);
-      const blob = await response.blob();
+      const resp = await fetch(oldUrl);
+      const blob = await resp.blob();
 
-      // 2) Write to root with the new name: {partCode}.png
+      // 2) Write to root with new name {partCode}.png
       const newRef = storageRef(storage, `${partCode}.png`);
       await uploadBytes(newRef, blob);
 
-      // 3) Delete the old file (best effort)
-      try {
-        await deleteObject(oldRef);
-      } catch (e) {
-        // ignore if not found / permission
-      }
+      // 3) Delete old file (best-effort)
+      try { await deleteObject(oldRef); } catch (e) { /* ignore */ }
 
-      // 4) Update DB imageUrl to the new URL
+      // 4) Update DB imageUrl for this application
       const newUrl = await getDownloadURL(newRef);
       const appRef = ref(database, `partApplications/${applicationId}`);
       const snap = await get(appRef);
