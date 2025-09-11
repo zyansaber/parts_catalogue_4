@@ -300,43 +300,39 @@ export class FirebaseService {
   }
 
   static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
+  try {
+    // 1) Read old file: partApplications/{APPID}.png
+    const oldRef = storageRef(storage, `partApplications/${applicationId}.png`);
+    const oldUrl = await getDownloadURL(oldRef);
+    const response = await fetch(oldUrl);
+    const blob = await response.blob();
+
+    // 2) Write new file to ROOT: {partCode}.png
+    const newRef = storageRef(storage, `${partCode}.png`);
+    await uploadBytes(newRef, blob);
+
+    // 3) Delete old file (best effort)
     try {
-      // 1) Read old file from Storage: partApplications/{APPID}.png
-      const oldRef = storageRef(storage, `partApplications/${applicationId}.png`);
-      const oldUrl = await getDownloadURL(oldRef);
-      const response = await fetch(oldUrl);
-      const blob = await response.blob();
-
-      // 2) Write new file to ROOT: {partCode}.png
-      const newRef = storageRef(storage, `${partCode}.png`);
-      await uploadBytes(newRef, blob);
-
-      // 3) Delete old file (best effort)
-      try {
-        await deleteObject(oldRef);
-      } catch (e) {
-        // ignore not-found or permission errors
-      }
-
-      // 4) Update DB imageUrl
-      const newUrl = await getDownloadURL(newRef);
-      const appRef = ref(database, `partApplications/${applicationId}`);
-      const snap = await get(appRef);
-      if (snap.exists()) {
-        const current = snap.val();
-        await set(appRef, { ...current, imageUrl: newUrl });
-      } else {
-        await set(appRef, { imageUrl: newUrl });
-      }
-    } catch (error) {
-      console.error('Error renaming image:', error);
-      throw error;
+      await deleteObject(oldRef);
+    } catch (e) {
+      // ignore
     }
-  } to ${partCode}`);
-    } catch (error) {
-      console.error('Error renaming image:', error);
-      throw error;
+
+    // 4) Update DB imageUrl
+    const newUrl = await getDownloadURL(newRef);
+    const appRef = ref(database, `partApplications/${applicationId}`);
+    const snap = await get(appRef);
+    if (snap.exists()) {
+      const current = snap.val();
+      await set(appRef, { ...current, imageUrl: newUrl });
+    } else {
+      await set(appRef, { imageUrl: newUrl });
     }
+  } catch (error) {
+    console.error('Error renaming image:', error);
+    throw error;
+  }
+
   }
 
   // Upload part image with part code as filename (for Take Photo page)
