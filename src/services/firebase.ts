@@ -288,9 +288,8 @@ export class FirebaseService {
   }
 
   static async uploadPartApplicationImage(file: File, applicationId: string): Promise<string> {
-    try {
-      // Upload to ROOT as `${applicationId}.png`
-      const imageRef = storageRef(storage, `${applicationId}.png`);
+    // Root-only upload
+    const imageRef = storageRef(storage, `${applicationId}.png`);
       const snapshot = await uploadBytes(imageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       return downloadURL;
