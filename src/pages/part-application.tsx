@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -172,14 +172,17 @@ export default function PartApplicationPage() {
       // Update application status and part code
       await FirebaseService.approvePartApplication(approveDialog.application.id, partCode.trim());
       
-      // Rename the application image to use the part code as filename
-      // This will automatically rename applicationId.png to partCode.png in Firebase Storage
-      await FirebaseService.renamePartApplicationImage(approveDialog.application.id, partCode.trim());
+      // Try to rename the application image (this may fail due to CORS but won't break the approval)
+      try {
+        await FirebaseService.renamePartApplicationImage(approveDialog.application.id, partCode.trim());
+      } catch (renameError) {
+        console.warn('Image rename failed (CORS issue), but approval succeeded:', renameError);
+      }
 
       // Reload applications to reflect the changes
       await loadApplications();
       
-      showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. Image renamed to ${partCode}.png`);
+      showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. Note: For future image uploads, use the part code ${partCode} as filename.`);
       setApproveDialog({ open: false, application: null });
       setPartCode('');
     } catch (error) {
@@ -470,6 +473,9 @@ export default function PartApplicationPage() {
                             <DialogContent className="max-w-2xl">
                               <DialogHeader>
                                 <DialogTitle>Application Details - {app.id}</DialogTitle>
+                                <DialogDescription>
+                                  View complete application information and part image
+                                </DialogDescription>
                               </DialogHeader>
                               <div className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4 text-sm">
@@ -536,6 +542,9 @@ export default function PartApplicationPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Approve Application - {approveDialog.application?.id}</DialogTitle>
+            <DialogDescription>
+              Enter the part code for this approved application. The part code will be used for future reference and image management.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -548,7 +557,7 @@ export default function PartApplicationPage() {
                 required
               />
               <p className="text-xs text-gray-500 mt-1">
-                The application image will be automatically renamed to {partCode || 'partCode'}.png
+                This part code will be associated with the application for future reference.
               </p>
             </div>
             <div className="flex justify-end space-x-2">
@@ -573,7 +582,7 @@ export default function PartApplicationPage() {
                 ) : (
                   <>
                     <CheckCircle className="h-4 w-4 mr-2" />
-                    Approve & Rename Image
+                    Approve Application
                   </>
                 )}
               </Button>
