@@ -32,7 +32,7 @@ export class FirebaseService {
 
       Object.entries(allParts).forEach(([material, part]) => {
         if (count >= limit) return;
-        
+
         const matchesMaterial = material.toLowerCase().includes(searchLower);
         const matchesDescription = (part.SPRAS_EN || '').toLowerCase().includes(searchLower);
         const matchesSupplier = (part.Supplier_Name || '').toLowerCase().includes(searchLower);
@@ -54,23 +54,23 @@ export class FirebaseService {
     try {
       const partsRef = ref(database, 'Parts');
       let queryRef;
-      
+
       if (startAfter) {
         queryRef = query(partsRef, startAt(startAfter), limitToFirst(limit + 1));
       } else {
         queryRef = query(partsRef, limitToFirst(limit));
       }
-      
+
       const snapshot = await get(queryRef);
       const data = snapshot.val() || {};
-      
+
       if (startAfter && Object.keys(data).length > 0) {
         const keys = Object.keys(data);
         if (keys[0] === startAfter) {
           delete data[keys[0]];
         }
       }
-      
+
       return data;
     } catch (error) {
       console.error('Error fetching paginated parts:', error);
@@ -106,12 +106,12 @@ export class FirebaseService {
       const bomRef = ref(database, `BoM/${modelWithMY}`);
       const snapshot = await get(bomRef);
       const data = snapshot.val();
-      
+
       if (!data) return {};
-      
+
       // Transform the data structure to match our BoMComponent interface
       const components: Record<string, BoMComponent> = {};
-      
+
       Object.entries(data).forEach(([materialCode, componentData]: [string, any]) => {
         if (componentData && typeof componentData === 'object') {
           components[materialCode] = {
@@ -122,7 +122,7 @@ export class FirebaseService {
           };
         }
       });
-      
+
       return components;
     } catch (error) {
       console.error('Error fetching BoM components:', error);
@@ -135,7 +135,7 @@ export class FirebaseService {
       const applicationsRef = ref(database, 'PartApplications');
       const newRef = push(applicationsRef);
       const ticketId = newRef.key!;
-      
+
       const fullApplication: PartApplication = {
         ...application,
         ticket_id: ticketId,
@@ -156,9 +156,9 @@ export class FirebaseService {
       const orderedQuery = query(applicationsRef, orderByChild('created_at'));
       const snapshot = await get(orderedQuery);
       const data = snapshot.val();
-      
+
       if (!data) return [];
-      
+
       return Object.values(data).reverse() as PartApplication[];
     } catch (error) {
       console.error('Error fetching part applications:', error);
@@ -177,11 +177,12 @@ export class FirebaseService {
     }
   }
 
+  // ⬇️ 改为：始终上传到【根目录】/{ticketId}.png
   static async uploadApplicationImage(ticketId: string, file: File): Promise<string> {
     try {
-      const imageRef = storageRef(storage, 'applications/' + ticketId + '.png');
+      const imageRef = storageRef(storage, ticketId + '.png');     // ROOT
       const snapshot = await uploadBytes(imageRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
+      const downloadURL = await getDownloadURL(snapshot.ref);       // 可直接 <img src> 的 URL
       return downloadURL;
     } catch (error) {
       console.error('Error uploading application image:', error);
@@ -205,7 +206,7 @@ export class FirebaseService {
 
   static async uploadPartImage(partCode: string, file: File): Promise<string> {
     try {
-      const imageRef = storageRef(storage, partCode + '.png');
+      const imageRef = storageRef(storage, partCode + '.png');      // ROOT
       const snapshot = await uploadBytes(imageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       return downloadURL;
@@ -215,11 +216,11 @@ export class FirebaseService {
     }
   }
 
-  static async updatePartData(material: string, updates: { 
-    notes?: string; 
-    year?: string; 
-    obsoleted_date?: string; 
-    alternative_parts?: string; 
+  static async updatePartData(material: string, updates: {
+    notes?: string;
+    year?: string;
+    obsoleted_date?: string;
+    alternative_parts?: string;
   }): Promise<void> {
     try {
       const partRef = ref(database, 'Parts/' + material);
@@ -232,7 +233,7 @@ export class FirebaseService {
     }
   }
 
-  // Part Application Management
+  // Part Application Management（旧流：partApplications 节点）
   static async getPartApplications(): Promise<any[]> {
     try {
       const snapshot = await get(ref(database, 'partApplications'));
@@ -287,17 +288,10 @@ export class FirebaseService {
     }
   }
 
+  // ⬇️ 保持：上传到【根目录】/{applicationId}.png（修复了你之前那段被截断的函数体）
   static async uploadPartApplicationImage(file: File, applicationId: string): Promise<string> {
     try {
-      const imageRef = storageRef(storage, `${applicationId}.png`); // ROOT
-      const snapshot = await uploadBytes(imageRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      return downloadURL;
-    } catch (error) {
-      console.error('Error uploading application image:', error);
-      throw error;
-    }
-  }.png`);
+      const imageRef = storageRef(storage, applicationId + '.png'); // ROOT
       const snapshot = await uploadBytes(imageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       return downloadURL;
@@ -307,16 +301,17 @@ export class FirebaseService {
     }
   }
 
+  // ⬇️ 审批后：根目录 {applicationId}.png -> {partCode}.png，并更新 DB 的 imageUrl
   static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
     try {
-      // 1) Read old file from ROOT: `${applicationId}.png`
-      const oldRef = storageRef(storage, `${applicationId}.png`);
+      // 1) Read old file from ROOT
+      const oldRef = storageRef(storage, applicationId + '.png');
       const oldUrl = await getDownloadURL(oldRef);
       const response = await fetch(oldUrl);
       const blob = await response.blob();
 
-      // 2) Write new file to ROOT: `${partCode}.png`
-      const newRef = storageRef(storage, `${partCode}.png`);
+      // 2) Write new file to ROOT
+      const newRef = storageRef(storage, partCode + '.png');
       await uploadBytes(newRef, blob);
 
       // 3) Delete the old file (best effort)
@@ -336,17 +331,12 @@ export class FirebaseService {
       console.error('Error renaming image:', error);
       throw error;
     }
-  } to ${partCode}`);
-    } catch (error) {
-      console.error('Error renaming image:', error);
-      throw error;
-    }
   }
 
   // Upload part image with part code as filename (for Take Photo page)
   static async uploadPartImageWithCode(file: File, partCode: string): Promise<string> {
     try {
-      const imageRef = storageRef(storage, `${partCode}.png`);
+      const imageRef = storageRef(storage, partCode + '.png');     // ROOT
       const snapshot = await uploadBytes(imageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       return downloadURL;
