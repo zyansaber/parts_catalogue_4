@@ -179,7 +179,7 @@ export class FirebaseService {
 
   static async uploadApplicationImage(ticketId: string, file: File): Promise<string> {
     try {
-      const imageRef = storageRef(storage, 'applications/' + ticketId + '.png');
+      const imageRef = storageRef(storage, ticketId + '.png');
       const snapshot = await uploadBytes(imageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);
       return downloadURL;
