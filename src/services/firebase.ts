@@ -168,7 +168,7 @@ export class FirebaseService {
 
   static async getPartApplication(ticketId: string): Promise<PartApplication | null> {
     try {
-      const appRef = ref(database, 'PartApplications/' + ticketId);
+      const appRef = ref(database, ticketId);
       const snapshot = await get(appRef);
       return snapshot.val();
     } catch (error) {
