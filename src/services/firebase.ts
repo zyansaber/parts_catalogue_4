@@ -1,6 +1,6 @@
 import { database, storage } from '@/lib/firebase';
 import { ref, get, push, set, query, orderByChild, limitToFirst, startAt } from 'firebase/database';
-import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject, getBytes } from 'firebase/storage';
 import { Part, BoMComponent, PartApplication } from '@/types';
 
 export class FirebaseService {
@@ -299,22 +299,17 @@ export class FirebaseService {
     }
   }
 
+  // use SDK-only path: getBytes -> uploadBytes -> deleteObject -> update DB
   static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
     try {
-      // 1) Read old file from ROOT
-      const oldRef = storageRef(storage, applicationId + '.png');
-      const oldUrl = await getDownloadURL(oldRef);
-      const resp = await fetch(oldUrl);
-      const blob = await resp.blob();
+      const oldRef = storageRef(storage, applicationId + '.png'); // ROOT
+      const bytes = await getBytes(oldRef); // Avoid CORS
 
-      // 2) Write new file to ROOT
-      const newRef = storageRef(storage, partCode + '.png');
-      await uploadBytes(newRef, blob);
+      const newRef = storageRef(storage, partCode + '.png');     // ROOT
+      await uploadBytes(newRef, bytes);
 
-      // 3) Delete old file (best effort)
-      try { await deleteObject(oldRef); } catch (_) {}
+      try { await deleteObject(oldRef); } catch {}
 
-      // 4) Update DB imageUrl to the new URL
       const newUrl = await getDownloadURL(newRef);
       const appRef = ref(database, `partApplications/${applicationId}`);
       const snap = await get(appRef);
