@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Download, Plus, Eye, CheckCircle, Image } from 'lucide-react';
+import { FileText, Download, Plus, Eye, CheckCircle, Image, Copy, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,6 +41,10 @@ export default function PartApplicationPage() {
     application: null
   });
   const [partCode, setPartCode] = useState('');
+  
+  // 新增：approve时的图片上传状态
+  const [approveImageFile, setApproveImageFile] = useState<File | null>(null);
+  const [approveImagePreview, setApproveImagePreview] = useState<string | null>(null);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -107,6 +111,44 @@ export default function PartApplicationPage() {
     }
   };
 
+  // 新增：处理approve时的图片上传
+  const handleApproveImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.type.startsWith('image/')) {
+        setApproveImageFile(file);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setApproveImagePreview(e.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        showMessage('error', 'Please select an image file');
+      }
+    }
+  };
+
+  // 新增：下载原始图片的功能
+  const downloadOriginalImage = async (imageUrl: string, applicationId: string) => {
+    try {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `${applicationId}_original.png`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      showMessage('success', 'Image downloaded successfully');
+    } catch (error) {
+      console.error('Error downloading image:', error);
+      showMessage('error', 'Failed to download image');
+    }
+  };
+
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 5000);
@@ -167,24 +209,41 @@ export default function PartApplicationPage() {
       return;
     }
 
+    if (!approveImageFile) {
+      showMessage('error', 'Please upload the part image with the part code name');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       // Update application status and part code
       await FirebaseService.approvePartApplication(approveDialog.application.id, partCode.trim());
       
-      // Try to rename the application image (this may fail due to CORS but won't break the approval)
-      try {
-        await FirebaseService.renamePartApplicationImage(approveDialog.application.id, partCode.trim());
-      } catch (renameError) {
-        console.warn('Image rename failed (CORS issue), but approval succeeded:', renameError);
+      // Upload new image with part code as filename
+      const newImageUrl = await FirebaseService.uploadPartImageWithCode(approveImageFile, partCode.trim());
+      
+      // Update the application with the new image URL
+      const appRef = ref(database, `partApplications/${approveDialog.application.id}`);
+      const appSnapshot = await get(appRef);
+      if (appSnapshot.exists()) {
+        const currentData = appSnapshot.val();
+        const updatedData = {
+          ...currentData,
+          partCodeImageUrl: newImageUrl // 保存part code图片URL
+        };
+        await set(appRef, updatedData);
       }
 
       // Reload applications to reflect the changes
       await loadApplications();
       
-      showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. Note: For future image uploads, use the part code ${partCode} as filename.`);
+      showMessage('success', `Application ${approveDialog.application.id} approved! Part image uploaded as ${partCode}.png successfully.`);
+      
+      // Reset approve dialog state
       setApproveDialog({ open: false, application: null });
       setPartCode('');
+      setApproveImageFile(null);
+      setApproveImagePreview(null);
     } catch (error) {
       console.error('Error approving application:', error);
       showMessage('error', 'Failed to approve application');
@@ -491,12 +550,21 @@ export default function PartApplicationPage() {
                                 {app.imageUrl && (
                                   <div>
                                     <strong>Part Image:</strong>
-                                    <div className="mt-2">
+                                    <div className="mt-2 flex items-center space-x-2">
                                       <img
                                         src={app.imageUrl}
                                         alt="Part image"
                                         className="max-w-full max-h-60 object-contain border rounded"
                                       />
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => downloadOriginalImage(app.imageUrl!, app.id)}
+                                        className="ml-2"
+                                      >
+                                        <Download className="h-3 w-3 mr-1" />
+                                        Download
+                                      </Button>
                                     </div>
                                   </div>
                                 )}
@@ -538,15 +606,45 @@ export default function PartApplicationPage() {
       </div>
 
       {/* Approve Dialog */}
-      <Dialog open={approveDialog.open} onOpenChange={(open) => setApproveDialog({ open, application: null })}>
-        <DialogContent>
+      <Dialog open={approveDialog.open} onOpenChange={(open) => {
+        setApproveDialog({ open, application: null });
+        if (!open) {
+          setPartCode('');
+          setApproveImageFile(null);
+          setApproveImagePreview(null);
+        }
+      }}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Approve Application - {approveDialog.application?.id}</DialogTitle>
             <DialogDescription>
-              Enter the part code for this approved application. The part code will be used for future reference and image management.
+              Enter the part code and upload the part image. The image will be saved with the part code as filename.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Original Image Display */}
+            {approveDialog.application?.imageUrl && (
+              <div>
+                <Label className="text-sm font-medium">Original Application Image</Label>
+                <div className="mt-2 flex items-center space-x-3">
+                  <img
+                    src={approveDialog.application.imageUrl}
+                    alt="Original application"
+                    className="w-20 h-20 object-contain border rounded"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadOriginalImage(approveDialog.application!.imageUrl!, approveDialog.application!.id)}
+                  >
+                    <Download className="h-3 w-3 mr-1" />
+                    Download Original
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Part Code Input */}
             <div>
               <Label htmlFor="partCode">Part Code *</Label>
               <Input
@@ -556,23 +654,50 @@ export default function PartApplicationPage() {
                 placeholder="Enter part code (e.g., ABC123)"
                 required
               />
-              <p className="text-xs text-gray-500 mt-1">
-                This part code will be associated with the application for future reference.
+            </div>
+
+            {/* Image Upload for Part Code */}
+            <div>
+              <Label htmlFor="approveImage">Upload Part Image *</Label>
+              <div className="space-y-3">
+                <Input
+                  id="approveImage"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleApproveImageSelect}
+                  required
+                />
+                {approveImagePreview && (
+                  <div className="border rounded-lg p-3">
+                    <img
+                      src={approveImagePreview}
+                      alt="Part code image preview"
+                      className="max-w-full max-h-40 object-contain mx-auto"
+                    />
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1 flex items-center">
+                <Upload className="h-3 w-3 mr-1" />
+                This image will be saved as {partCode || 'partCode'}.png
               </p>
             </div>
+
             <div className="flex justify-end space-x-2">
               <Button 
                 variant="outline" 
                 onClick={() => {
                   setApproveDialog({ open: false, application: null });
                   setPartCode('');
+                  setApproveImageFile(null);
+                  setApproveImagePreview(null);
                 }}
               >
                 Cancel
               </Button>
               <Button 
                 onClick={handleApprove}
-                disabled={isSubmitting || !partCode.trim()}
+                disabled={isSubmitting || !partCode.trim() || !approveImageFile}
               >
                 {isSubmitting ? (
                   <>
@@ -582,7 +707,7 @@ export default function PartApplicationPage() {
                 ) : (
                   <>
                     <CheckCircle className="h-4 w-4 mr-2" />
-                    Approve Application
+                    Approve & Upload Image
                   </>
                 )}
               </Button>
