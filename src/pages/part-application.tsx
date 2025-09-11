@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -172,8 +172,14 @@ export default function PartApplicationPage() {
       // Update application status and part code
       await FirebaseService.approvePartApplication(approveDialog.application.id, partCode.trim());
       
+      await FirebaseService.approvePartApplication(approveDialog.application.id, partCode.trim());
       await FirebaseService.renamePartApplicationImage(approveDialog.application.id, partCode.trim()); // ✅ 总是执行
       await loadApplications();
+
+
+      // Reload applications
+      await loadApplications();
+      
       showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}`);
       setApproveDialog({ open: false, application: null });
       setPartCode('');
@@ -292,7 +298,7 @@ export default function PartApplicationPage() {
                   <div>
                     <Label htmlFor="priority">Priority</Label>
                     <Select value={formData.priority} onValueChange={(value: 'low' | 'medium' | 'high') => 
-                      setFormData(prev => ({ ...prev, priority: value as 'low' | 'medium' | 'high' }))}>
+                      setFormData(prev => ({ ...prev, priority: value }))}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -462,7 +468,7 @@ export default function PartApplicationPage() {
                                 <Eye className="h-3 w-3" />
                               </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-w-2xl" aria-describedby={undefined}>
+                            <DialogContent className="max-w-2xl">
                               <DialogHeader>
                                 <DialogTitle>Application Details - {app.id}</DialogTitle>
                               </DialogHeader>
@@ -527,8 +533,8 @@ export default function PartApplicationPage() {
       </div>
 
       {/* Approve Dialog */}
-      <Dialog open={approveDialog.open} onOpenChange={(open) => { if (!open) setApproveDialog({ open: false, application: null }); }}>
-        <DialogContent aria-describedby={undefined}>
+      <Dialog open={approveDialog.open} onOpenChange={(open) => setApproveDialog({ open, application: null })}>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Approve Application - {approveDialog.application?.id}</DialogTitle>
           </DialogHeader>
