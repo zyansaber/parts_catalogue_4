@@ -303,13 +303,10 @@ export class FirebaseService {
   static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
     try {
       const oldRef = storageRef(storage, applicationId + '.png'); // ROOT
-      const bytes = await getBytes(oldRef); // Avoid CORS
-
-      const newRef = storageRef(storage, partCode + '.png');     // ROOT
+      const bytes = await getBytes(oldRef);
+      const newRef = storageRef(storage, partCode + '.png'); // ROOT
       await uploadBytes(newRef, bytes);
-
       try { await deleteObject(oldRef); } catch {}
-
       const newUrl = await getDownloadURL(newRef);
       const appRef = ref(database, `partApplications/${applicationId}`);
       const snap = await get(appRef);
@@ -324,17 +321,3 @@ export class FirebaseService {
       throw error;
     }
   }
-
-  // Upload part image with part code as filename (for Take Photo page)
-  static async uploadPartImageWithCode(file: File, partCode: string): Promise<string> {
-    try {
-      const imageRef = storageRef(storage, `${partCode}.png`);
-      const snapshot = await uploadBytes(imageRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      return downloadURL;
-    } catch (error) {
-      console.error('Error uploading part image:', error);
-      throw error;
-    }
-  }
-}
