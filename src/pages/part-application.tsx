@@ -127,22 +127,25 @@ export default function PartApplicationPage() {
     }
   };
 
-  const downloadImage = async (imageUrl: string, filename: string) => {
+  // 修改下载方法：直接打开新窗口，让浏览器处理下载
+  const downloadImage = (imageUrl: string, filename: string) => {
     try {
-      const response = await fetch(imageUrl);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      showMessage('success', `Image downloaded as ${filename}`);
+      // 创建一个隐藏的链接元素
+      const link = document.createElement('a');
+      link.href = imageUrl;
+      link.download = filename;
+      link.target = '_blank'; // 在新窗口打开，避免CORS问题
+      link.rel = 'noopener noreferrer';
+      
+      // 添加到DOM，点击，然后移除
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      showMessage('success', `Opening download for ${filename}. If download doesn't start, right-click the image and select "Save image as..."`);
     } catch (error) {
       console.error('Error downloading image:', error);
-      showMessage('error', 'Failed to download image');
+      showMessage('error', 'Failed to download image. Please right-click the image and select "Save image as..."');
     }
   };
 
@@ -234,7 +237,7 @@ export default function PartApplicationPage() {
           showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. Image upload failed but approval succeeded.`);
         }
       } else {
-        showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. Please download the original image and upload it with the part code name if needed.`);
+        showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. You can manually download the original image and save it with the part code name.`);
       }
 
       // Reload applications to reflect the changes
@@ -523,7 +526,7 @@ export default function PartApplicationPage() {
                             className="h-6 px-2 text-xs"
                           >
                             <Download className="h-3 w-3 mr-1" />
-                            Download
+                            Open
                           </Button>
                         </div>
                       )}
@@ -561,20 +564,25 @@ export default function PartApplicationPage() {
                                 {app.imageUrl && (
                                   <div>
                                     <strong>Part Image:</strong>
-                                    <div className="mt-2 flex items-center justify-between">
+                                    <div className="mt-2 space-y-2">
                                       <img
                                         src={app.imageUrl}
                                         alt="Part image"
                                         className="max-w-full max-h-60 object-contain border rounded"
                                       />
-                                      <Button
-                                        variant="outline"
-                                        onClick={() => downloadImage(app.imageUrl!, `${app.id}.png`)}
-                                        className="ml-2"
-                                      >
-                                        <Download className="h-4 w-4 mr-2" />
-                                        Download Image
-                                      </Button>
+                                      <div className="flex space-x-2">
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => downloadImage(app.imageUrl!, `${app.id}.png`)}
+                                        >
+                                          <Download className="h-4 w-4 mr-2" />
+                                          Open Image
+                                        </Button>
+                                        <p className="text-xs text-gray-500 flex items-center">
+                                          Right-click image → "Save image as..." if download doesn't work
+                                        </p>
+                                      </div>
                                     </div>
                                   </div>
                                 )}
@@ -640,16 +648,19 @@ export default function PartApplicationPage() {
               <div className="space-y-2">
                 <Label>Original Image</Label>
                 <div className="flex items-center justify-between p-2 border rounded">
-                  <span className="text-sm text-gray-600">Download original image first</span>
+                  <span className="text-sm text-gray-600">Open original image in new tab</span>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => downloadImage(approveDialog.application!.imageUrl!, `${approveDialog.application!.id}.png`)}
                   >
                     <Download className="h-3 w-3 mr-1" />
-                    Download
+                    Open
                   </Button>
                 </div>
+                <p className="text-xs text-gray-500">
+                  Tip: Right-click the image and select "Save image as..." to save it with the part code name
+                </p>
               </div>
             )}
             
