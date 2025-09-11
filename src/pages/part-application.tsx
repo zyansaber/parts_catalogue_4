@@ -172,10 +172,10 @@ export default function PartApplicationPage() {
       // Update application status and part code
       await FirebaseService.approvePartApplication(approveDialog.application.id, partCode.trim());
       
-      // Rename image file to part code
-      if (approveDialog.application.imageUrl) {
-        await FirebaseService.renamePartApplicationImage(approveDialog.application.id, partCode.trim());
-      }
+      await FirebaseService.approvePartApplication(approveDialog.application.id, partCode.trim());
+      await FirebaseService.renamePartApplicationImage(approveDialog.application.id, partCode.trim()); // ✅ 总是执行
+      await loadApplications();
+
 
       // Reload applications
       await loadApplications();
