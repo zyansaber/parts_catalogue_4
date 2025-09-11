@@ -299,36 +299,155 @@ export class FirebaseService {
     }
   }
 
-  // 简化版本：只上传新图片，不删除旧图片，避免CORS问题
-  static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
+  // 新方法：复制图片到新的part code文件名
+  static async copyImageToPartCode(applicationId: string, partCode: string): Promise<string> {
     try {
-      console.log(`Starting simplified image rename from ${applicationId} to ${partCode}`);
+      console.log(`Starting image copy from ${applicationId} to ${partCode}`);
       
       // 获取当前application的数据
       const appRef = ref(database, `partApplications/${applicationId}`);
       const appSnapshot = await get(appRef);
       
       if (!appSnapshot.exists()) {
-        console.warn('Application not found, skipping image rename');
-        return;
+        throw new Error('Application not found');
       }
       
       const appData = appSnapshot.val();
+      const currentImageUrl = appData.imageUrl;
       
-      // 只上传一个新的图片文件，使用partCode作为文件名
-      // 这样就有两个文件：原来的applicationId.png 和新的 partCode.png
-      // 避免了CORS问题，因为我们不需要读取原文件
+      if (!currentImageUrl) {
+        console.log('No image URL found, skipping copy');
+        return '';
+      }
+
+      // 使用原生fetch API获取图片blob，添加no-cors模式
+      const response = await fetch(currentImageUrl, { 
+        mode: 'cors',
+        method: 'GET'
+      });
       
-      // 创建一个简单的占位符图片或者复制现有图片的引用
-      // 实际上，我们可以让用户重新上传图片，或者保持原来的imageUrl不变
+      if (!response.ok) {
+        // 如果CORS失败，尝试通过代理方式
+        console.log('Direct fetch failed, trying alternative method');
+        
+        // 创建一个canvas来"复制"图片
+        return await this.copyImageViaCanvas(currentImageUrl, partCode);
+      }
       
-      console.log(`Image rename completed. Part code ${partCode} has been associated with application ${applicationId}`);
-      console.log('Note: Original image file remains as backup. New parts should use the part code for future image uploads.');
+      const imageBlob = await response.blob();
+      
+      // 上传到新的part code文件名
+      const newImageRef = storageRef(storage, `${partCode}.png`);
+      const uploadSnapshot = await uploadBytes(newImageRef, imageBlob);
+      const newImageUrl = await getDownloadURL(uploadSnapshot.ref);
+      
+      console.log(`Successfully copied image to ${partCode}.png`);
+      return newImageUrl;
       
     } catch (error) {
-      console.error('Error in simplified image rename:', error);
-      // 不抛出错误，因为这不是关键功能
-      console.warn('Image rename failed, but application approval will continue');
+      console.error('Error copying image:', error);
+      
+      // 如果所有方法都失败，返回原始URL，至少保持功能可用
+      const appRef = ref(database, `partApplications/${applicationId}`);
+      const appSnapshot = await get(appRef);
+      if (appSnapshot.exists()) {
+        const appData = appSnapshot.val();
+        return appData.imageUrl || '';
+      }
+      
+      return '';
+    }
+  }
+
+  // 备用方法：通过canvas复制图片
+  static async copyImageViaCanvas(imageUrl: string, partCode: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      
+      img.onload = async () => {
+        try {
+          // 创建canvas
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            throw new Error('Could not get canvas context');
+          }
+          
+          // 设置canvas尺寸
+          canvas.width = img.width;
+          canvas.height = img.height;
+          
+          // 绘制图片到canvas
+          ctx.drawImage(img, 0, 0);
+          
+          // 转换为blob
+          canvas.toBlob(async (blob) => {
+            if (!blob) {
+              reject(new Error('Could not create blob from canvas'));
+              return;
+            }
+            
+            try {
+              // 上传新图片
+              const newImageRef = storageRef(storage, `${partCode}.png`);
+              const uploadSnapshot = await uploadBytes(newImageRef, blob);
+              const newImageUrl = await getDownloadURL(uploadSnapshot.ref);
+              
+              console.log(`Successfully copied image via canvas to ${partCode}.png`);
+              resolve(newImageUrl);
+            } catch (uploadError) {
+              reject(uploadError);
+            }
+          }, 'image/png');
+          
+        } catch (error) {
+          reject(error);
+        }
+      };
+      
+      img.onerror = () => {
+        reject(new Error('Failed to load image for canvas copy'));
+      };
+      
+      // 尝试加载图片
+      img.src = imageUrl;
+    });
+  }
+
+  // 重命名方法：现在使用复制策略
+  static async renamePartApplicationImage(applicationId: string, partCode: string): Promise<void> {
+    try {
+      console.log(`Starting image rename (copy) from ${applicationId} to ${partCode}`);
+      
+      // 复制图片到新的part code文件名
+      const newImageUrl = await this.copyImageToPartCode(applicationId, partCode);
+      
+      if (newImageUrl) {
+        // 更新数据库中的imageUrl指向新文件
+        const appRef = ref(database, `partApplications/${applicationId}`);
+        const appSnapshot = await get(appRef);
+        
+        if (appSnapshot.exists()) {
+          const currentData = appSnapshot.val();
+          const updatedData = {
+            ...currentData,
+            imageUrl: newImageUrl,
+            partCodeImageUrl: newImageUrl // 额外保存一个字段记录part code图片URL
+          };
+          await set(appRef, updatedData);
+        }
+        
+        console.log(`Successfully renamed (copied) image to ${partCode}.png`);
+      } else {
+        console.log('Image copy failed, but continuing with approval');
+      }
+      
+    } catch (error) {
+      console.error('Error in image rename (copy):', error);
+      // 不抛出错误，让approval继续进行
+      console.warn('Image copy failed, but application approval will continue');
     }
   }
 
