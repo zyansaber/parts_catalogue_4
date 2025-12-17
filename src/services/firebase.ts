@@ -99,10 +99,12 @@ export class FirebaseService {
         
         const matchesMaterial = material.toLowerCase().includes(searchLower);
         const matchesDescription = (part.SPRAS_EN || '').toLowerCase().includes(searchLower);
-        const matchesSupplier = (part.Supplier_Name || '').toLowerCase().includes(searchLower);
-        const matchesSupplier = (part.Supplier_Name || '').toLowerCase().includes(searchLower);
 
-        if (matchesMaterial || matchesDescription || matchesSupplier) {
+        if (
+          matchesMaterial ||
+          matchesDescription ||
+          (part.Supplier_Name || '').toLowerCase().includes(searchLower)
+        ) {
           filtered[material] = part;
           count++;
         }
