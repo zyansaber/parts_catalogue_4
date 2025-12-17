@@ -8,8 +8,26 @@ export class FirebaseService {
   static async getAllParts(): Promise<Record<string, Part>> {
     try {
       const partsRef = ref(database, 'material_summary_2025');
-      const snapshot = await get(partsRef);
-      return snapshot.val() || {};
+      const adminPartsRef = ref(database, 'Parts');
+
+      const [baseSnapshot, adminSnapshot] = await Promise.all([
+        get(partsRef),
+        get(adminPartsRef)
+      ]);
+
+      const baseParts = baseSnapshot.val() || {};
+      const adminParts = adminSnapshot.val() || {};
+
+      // Merge admin overrides (notes, visibility, etc.) into the base dataset
+      const merged: Record<string, Part> = { ...baseParts };
+      Object.entries(adminParts).forEach(([material, overrides]) => {
+        merged[material] = {
+          ...merged[material],
+          ...overrides,
+        } as Part;
+      });
+
+      return merged;
     } catch (error) {
       console.error('Error fetching parts:', error);
       return {};
@@ -215,11 +233,12 @@ export class FirebaseService {
     }
   }
 
-  static async updatePartData(material: string, updates: { 
-    notes?: string; 
-    year?: string; 
-    obsoleted_date?: string; 
-    alternative_parts?: string; 
+  static async updatePartData(material: string, updates: {
+    notes?: string;
+    year?: string;
+    obsoleted_date?: string;
+    alternative_parts?: string;
+    show_in_catalogue?: boolean;
   }): Promise<void> {
     try {
       const partRef = ref(database, 'Parts/' + material);
