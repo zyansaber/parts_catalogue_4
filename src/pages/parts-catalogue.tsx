@@ -72,6 +72,9 @@ export default function PartsCataloguePage() {
 
   const filteredAndSortedParts = useMemo(() => {
     const filtered = Object.entries(allParts).filter(([material, part]) => {
+      const isHidden = part.show_in_catalogue === false;
+      if (isHidden) return false;
+      
       // Supplier filter
       const matchesSupplier = selectedSupplier === 'all' || part.Supplier_Name === selectedSupplier;
       // Stock filter
