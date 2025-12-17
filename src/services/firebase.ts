@@ -264,7 +264,9 @@ export class FirebaseService {
     try {
       const partRef = ref(database, 'Parts/' + material);
       const currentData = await get(partRef);
-      const updatedData = { ...currentData.val(), ...updates };
+      const baseData = currentData.val();
+      const safeData = isRecord(baseData) ? baseData : {};
+      const updatedData = { ...safeData, ...updates };
       await set(partRef, updatedData);
     } catch (error) {
       console.error('Error updating part data:', error);
