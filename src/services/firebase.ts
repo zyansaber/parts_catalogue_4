@@ -3,6 +3,10 @@ import { ref, get, push, set, query, orderByChild, limitToFirst, startAt } from 
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Part, BoMComponent, PartApplication } from '@/types';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export class FirebaseService {
   // Parts operations with pagination and search
   static async getAllParts(): Promise<Record<string, Part>> {
@@ -15,20 +19,37 @@ export class FirebaseService {
         get(adminPartsRef)
       ]);
 
-      const baseParts = baseSnapshot.val() || {};
-      const adminParts = adminSnapshot.val() || {};
+      const baseParts: Record<string, Part> = {};
+      const adminParts: Record<string, Part> = {};
+
+      const baseVal = baseSnapshot.val();
+      if (isRecord(baseVal)) {
+        Object.entries(baseVal).forEach(([material, part]) => {
+          if (isRecord(part)) {
+            baseParts[material] = part as Part;
+          }
+        });
+      }
+
+      const adminVal = adminSnapshot.val();
+      if (isRecord(adminVal)) {
+        Object.entries(adminVal).forEach(([material, overrides]) => {
+          if (isRecord(overrides)) {
+            adminParts[material] = overrides as Part;
+          }
+        });
+      }
 
       // Merge admin overrides (notes, visibility, etc.) into the base dataset
       const merged: Record<string, Part> = { ...baseParts };
       Object.entries(adminParts).forEach(([material, overrides]) => {
         merged[material] = {
-          ...merged[material],
+          ...(merged[material] ?? {}),
           ...overrides,
         } as Part;
       });
 
       return merged;
-    } catch (error) {
       console.error('Error fetching parts:', error);
       return {};
     }
@@ -232,7 +253,7 @@ export class FirebaseService {
       throw error;
     }
   }
-
+  
   static async updatePartData(material: string, updates: {
     notes?: string;
     year?: string;
