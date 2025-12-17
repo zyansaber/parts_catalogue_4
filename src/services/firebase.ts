@@ -14,13 +14,17 @@ export class FirebaseService {
       const partsRef = ref(database, 'material_summary_2025');
       const adminPartsRef = ref(database, 'Parts');
 
-      const [baseSnapshot, adminSnapshot] = await Promise.all([
+      const visibilityRef = ref(database, 'PartsVisibility');
+
+      const [baseSnapshot, adminSnapshot, visibilitySnapshot] = await Promise.all([
         get(partsRef),
-        get(adminPartsRef)
+        get(adminPartsRef),
+        get(visibilityRef)
       ]);
 
       const baseParts: Record<string, Part> = {};
       const adminParts: Record<string, Part> = {};
+      const visibilityOverrides: Record<string, Pick<Part, 'show_in_catalogue'>> = {};
 
       const baseVal = baseSnapshot.val();
       if (isRecord(baseVal)) {
@@ -40,12 +44,31 @@ export class FirebaseService {
         });
       }
 
+      const visibilityVal = visibilitySnapshot.val();
+      if (isRecord(visibilityVal)) {
+        Object.entries(visibilityVal).forEach(([material, visibility]) => {
+          if (isRecord(visibility) && 'show_in_catalogue' in visibility) {
+            visibilityOverrides[material] = {
+              show_in_catalogue: Boolean((visibility as Record<string, unknown>).show_in_catalogue)
+            };
+          }
+        });
+      }
+
       // Merge admin overrides (notes, visibility, etc.) into the base dataset
       const merged: Record<string, Part> = { ...baseParts };
       Object.entries(adminParts).forEach(([material, overrides]) => {
         merged[material] = {
           ...(merged[material] ?? {}),
           ...overrides,
+        } as Part;
+      });
+
+      // Merge show/hide overrides stored separately to avoid full overwrite conflicts
+      Object.entries(visibilityOverrides).forEach(([material, visibility]) => {
+        merged[material] = {
+          ...(merged[material] ?? {}),
+          ...visibility,
         } as Part;
       });
 
@@ -76,6 +99,7 @@ export class FirebaseService {
         
         const matchesMaterial = material.toLowerCase().includes(searchLower);
         const matchesDescription = (part.SPRAS_EN || '').toLowerCase().includes(searchLower);
+        const matchesSupplier = (part.Supplier_Name || '').toLowerCase().includes(searchLower);
         const matchesSupplier = (part.Supplier_Name || '').toLowerCase().includes(searchLower);
 
         if (matchesMaterial || matchesDescription || matchesSupplier) {
@@ -264,12 +288,28 @@ export class FirebaseService {
     show_in_catalogue?: boolean;
   }): Promise<void> {
     try {
-      const partRef = ref(database, 'Parts/' + material);
-      const currentData = await get(partRef);
-      const baseData = currentData.val();
-      const safeData = isRecord(baseData) ? baseData : {};
-      const updatedData = { ...safeData, ...updates };
-      await set(partRef, updatedData);
+      const { show_in_catalogue, ...restUpdates } = updates;
+
+      // Strip undefined values to avoid Firebase "undefined" errors
+      const sanitizedUpdates = Object.fromEntries(
+        Object.entries(restUpdates).filter(([, value]) => value !== undefined)
+      );
+
+      // Persist non-visibility fields under Parts
+      if (Object.keys(sanitizedUpdates).length > 0) {
+        const partRef = ref(database, 'Parts/' + material);
+        const currentData = await get(partRef);
+        const baseData = currentData.val();
+        const safeData = isRecord(baseData) ? baseData : {};
+        const updatedData = { ...safeData, ...sanitizedUpdates };
+        await set(partRef, updatedData);
+      }
+
+      // Persist show/hide flag in a dedicated dataset to avoid overwrites
+      if (show_in_catalogue !== undefined) {
+        const visibilityRef = ref(database, 'PartsVisibility/' + material);
+        await set(visibilityRef, { show_in_catalogue });
+      }
     } catch (error) {
       console.error('Error updating part data:', error);
       throw error;
