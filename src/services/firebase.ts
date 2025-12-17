@@ -51,6 +51,7 @@ export class FirebaseService {
 
       return merged;
       console.error('Error fetching parts:', error);
+      } catch (error) {
       return {};
     }
   }
