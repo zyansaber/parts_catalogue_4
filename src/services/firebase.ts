@@ -50,8 +50,9 @@ export class FirebaseService {
       });
 
       return merged;
-      console.error('Error fetching parts:', error);
-      } catch (error) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Error fetching parts:', message);
       return {};
     }
   }
