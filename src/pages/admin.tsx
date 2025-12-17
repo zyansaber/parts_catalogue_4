@@ -13,6 +13,7 @@ import { Part } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import { Switch } from '@/components/ui/switch';
 
 export default function AdminPage() {
   const [parts, setParts] = useState<Record<string, Part>>({});
@@ -33,6 +34,7 @@ export default function AdminPage() {
   const [year, setYear] = useState('');
   const [obsoletedDate, setObsoletedDate] = useState('');
   const [alternativeParts, setAlternativeParts] = useState('');
+  const [showInCatalogue, setShowInCatalogue] = useState(true);
 
   // Stats for dashboard
   const [stats, setStats] = useState({
@@ -102,6 +104,7 @@ export default function AdminPage() {
     setYear(part.year || '');
     setObsoletedDate(part.obsoleted_date || '');
     setAlternativeParts(part.alternative_parts || '');
+    setShowInCatalogue(part.show_in_catalogue !== false);
   };
 
   const handleImageUpload = async (file: File) => {
@@ -150,10 +153,11 @@ export default function AdminPage() {
         year: year.trim() || undefined,
         obsoleted_date: obsoletedDate.trim() || undefined,
         alternative_parts: alternativeParts.trim() || undefined,
+        show_in_catalogue: showInCatalogue,
       };
 
       await FirebaseService.updatePartData(selectedPart.material, updates);
-      
+
       // Update local state
       setParts(prev => ({
         ...prev,
@@ -451,8 +455,20 @@ export default function AdminPage() {
                 </div>
 
                 {/* Save Button */}
-                <Button 
-                  onClick={handleSavePartData} 
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <p className="text-sm font-medium">Show in catalogue</p>
+                    <p className="text-xs text-gray-500">Toggle visibility for this part in the public catalogue.</p>
+                  </div>
+                  <Switch
+                    checked={showInCatalogue}
+                    onCheckedChange={setShowInCatalogue}
+                    aria-label="Toggle catalogue visibility"
+                  />
+                </div>
+
+                <Button
+                  onClick={handleSavePartData}
                   disabled={isSaving}
                   className="w-full"
                 >
