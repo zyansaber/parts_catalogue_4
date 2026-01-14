@@ -15,7 +15,6 @@ export interface Part {
   'Customer_vs_Std_%'?: number;
   Purchase_Qty_2025_to_Date?: number;
   Supplier_Name?: string;
-  note?: string;
   notes?: string;
   year?: string;
   obsoleted_date?: string;
