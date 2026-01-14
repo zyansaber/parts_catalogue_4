@@ -283,6 +283,7 @@ export class FirebaseService {
   }
   
   static async updatePartData(material: string, updates: {
+    note?: string;
     notes?: string;
     year?: string;
     obsoleted_date?: string;
