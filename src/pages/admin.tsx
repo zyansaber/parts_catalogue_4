@@ -148,8 +148,9 @@ export default function AdminPage() {
 
     setIsSaving(true);
     try {
+      const trimmedNotes = notes.trim();
       const updates = {
-        notes: notes.trim() || undefined,
+        notes: trimmedNotes,
         year: year.trim() || undefined,
         obsoleted_date: obsoletedDate.trim() || undefined,
         alternative_parts: alternativeParts.trim() || undefined,
