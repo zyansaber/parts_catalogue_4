@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Checkbox } from '@/components/ui/checkbox';
 import { ImageWithFallback } from '@/components/ui/image-with-fallback';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Textarea } from '@/components/ui/textarea';
 import { FirebaseService } from '@/services/firebase';
 import { Part } from '@/types';
 import { formatCurrency } from '@/lib/utils';
@@ -26,6 +27,8 @@ export default function PartsCataloguePage() {
   const [isSearching, setIsSearching] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [isSavingNote, setIsSavingNote] = useState(false);
   const itemsPerPage = 50;
 
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
@@ -59,6 +62,44 @@ export default function PartsCataloguePage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearchTerm]);
+
+  useEffect(() => {
+    if (selectedPart) {
+      setNoteDraft(selectedPart.part.note || '');
+    }
+  }, [selectedPart]);
+
+  const handleSaveNote = async () => {
+    if (!selectedPart) return;
+    setIsSavingNote(true);
+    const trimmedNote = noteDraft.trim();
+
+    try {
+      await FirebaseService.updatePartData(selectedPart.material, { note: trimmedNote });
+      setAllParts(prev => ({
+        ...prev,
+        [selectedPart.material]: {
+          ...prev[selectedPart.material],
+          note: trimmedNote
+        }
+      }));
+      setSelectedPart(prev => (
+        prev
+          ? {
+              ...prev,
+              part: {
+                ...prev.part,
+                note: trimmedNote
+              }
+            }
+          : prev
+      ));
+    } catch (error) {
+      console.error('Error saving note:', error);
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
 
   const suppliers = useMemo(() => {
     const supplierSet = new Set<string>();
@@ -252,6 +293,24 @@ export default function PartsCataloguePage() {
                               <label className="text-sm font-medium text-gray-500">Supplier</label>
                               <p className="text-gray-900">{selectedPart.part.Supplier_Name || '—'}</p>
                             </div>
+                            <div>
+                              <label className="text-sm font-medium text-gray-500">Note</label>
+                              <Textarea
+                                value={noteDraft}
+                                onChange={(event) => setNoteDraft(event.target.value)}
+                                placeholder="Add a note for this part..."
+                                className="mt-2 min-h-[96px] text-sm"
+                              />
+                              <div className="mt-2 flex justify-end">
+                                <Button
+                                  size="sm"
+                                  onClick={handleSaveNote}
+                                  disabled={isSavingNote}
+                                >
+                                  {isSavingNote ? 'Saving...' : 'Save'}
+                                </Button>
+                              </div>
+                            </div>
                             {/* Display admin-added fields */}
                             {selectedPart.part.notes && (
                               <div>
@@ -312,6 +371,9 @@ export default function PartsCataloguePage() {
                 </div>
                 
                 {/* Display admin-added info in catalogue cards */}
+                {part.note && (
+                  <p className="text-xs text-emerald-700 mb-1">Note: {part.note}</p>
+                )}
                 {part.notes && (
                   <p className="text-xs text-amber-600 mb-1">📝 {part.notes}</p>
                 )}
