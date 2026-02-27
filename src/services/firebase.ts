@@ -12,19 +12,9 @@ export class FirebaseService {
   static async getAllParts(): Promise<Record<string, Part>> {
     try {
       const partsRef = ref(database, 'material_summary_2025');
-      const adminPartsRef = ref(database, 'Parts');
-
-      const visibilityRef = ref(database, 'PartsVisibility');
-
-      const [baseSnapshot, adminSnapshot, visibilitySnapshot] = await Promise.all([
-        get(partsRef),
-        get(adminPartsRef),
-        get(visibilityRef)
-      ]);
+      const baseSnapshot = await get(partsRef);
 
       const baseParts: Record<string, Part> = {};
-      const adminParts: Record<string, Part> = {};
-      const visibilityOverrides: Record<string, Pick<Part, 'show_in_catalogue'>> = {};
 
       const baseVal = baseSnapshot.val();
       if (isRecord(baseVal)) {
@@ -35,44 +25,7 @@ export class FirebaseService {
         });
       }
 
-      const adminVal = adminSnapshot.val();
-      if (isRecord(adminVal)) {
-        Object.entries(adminVal).forEach(([material, overrides]) => {
-          if (isRecord(overrides)) {
-            adminParts[material] = overrides as Part;
-          }
-        });
-      }
-
-      const visibilityVal = visibilitySnapshot.val();
-      if (isRecord(visibilityVal)) {
-        Object.entries(visibilityVal).forEach(([material, visibility]) => {
-          if (isRecord(visibility) && 'show_in_catalogue' in visibility) {
-            visibilityOverrides[material] = {
-              show_in_catalogue: Boolean((visibility as Record<string, unknown>).show_in_catalogue)
-            };
-          }
-        });
-      }
-
-      // Merge admin overrides (notes, visibility, etc.) into the base dataset
-      const merged: Record<string, Part> = { ...baseParts };
-      Object.entries(adminParts).forEach(([material, overrides]) => {
-        merged[material] = {
-          ...(merged[material] ?? {}),
-          ...overrides,
-        } as Part;
-      });
-
-      // Merge show/hide overrides stored separately to avoid full overwrite conflicts
-      Object.entries(visibilityOverrides).forEach(([material, visibility]) => {
-        merged[material] = {
-          ...(merged[material] ?? {}),
-          ...visibility,
-        } as Part;
-      });
-
-      return merged;
+      return baseParts;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       console.error('Error fetching parts:', message);
