@@ -12,7 +12,11 @@ export class FirebaseService {
   static async getAllParts(): Promise<Record<string, Part>> {
     try {
       const partsRef = ref(database, 'material_summary_2025');
-      const baseSnapshot = await get(partsRef);
+      const visibilityRef = ref(database, 'PartsVisibility');
+      const [baseSnapshot, visibilitySnapshot] = await Promise.all([
+        get(partsRef),
+        get(visibilityRef),
+      ]);
 
       const baseParts: Record<string, Part> = {};
 
@@ -22,6 +26,20 @@ export class FirebaseService {
           if (isRecord(part)) {
             baseParts[material] = part as Part;
           }
+        });
+      }
+
+
+      const visibilityVal = visibilitySnapshot.val();
+      if (isRecord(visibilityVal)) {
+        Object.entries(visibilityVal).forEach(([material, visibility]) => {
+          if (!isRecord(visibility)) return;
+          const showInCatalogue = visibility.show_in_catalogue;
+          if (typeof showInCatalogue !== 'boolean') return;
+          baseParts[material] = {
+            ...(baseParts[material] || {}),
+            show_in_catalogue: showInCatalogue,
+          } as Part;
         });
       }
 
