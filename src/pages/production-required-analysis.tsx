@@ -7,7 +7,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getLang, t, type Lang } from '@/lib/i18n';
 
-type SummaryItem = { part?: string; nosea_required_qty?: number; sea_required_qty?: number; stock_qty?: number; description?: string; spras_en?: string; };
+type SummaryItem = { part?: string; nosea_required_qty?: number; sea_required_qty?: number; stock_qty?: number; description?: string; spras_en?: string; is_kanban?: boolean; };
 type OpenPoItem = { po_number?: string; po_item?: string; part?: string; vendor?: string; orderdate?: string; deliverydate?: string; };
 const normalizePart = (part?: string) => (part || '').trim().replace(/[_-]?KANBAN.*$/i, '').replace(/[_-]\d+$/,'');
 
@@ -17,7 +17,7 @@ export default function ProductionRequiredAnalysisPage() {
   const [search, setSearch] = useState(''); const [mode, setMode] = useState<'sea'|'nosea'>('sea');
   useEffect(()=>{ const fn=()=>setLang(getLang()); window.addEventListener('language-change', fn); return ()=>window.removeEventListener('language-change', fn);},[]);
   useEffect(()=>{(async()=>{setLoading(true); const [s,o]=await Promise.all([get(ref(database,'production_report/summary/items')),get(ref(database,'production_report/open_po/items'))]);
-    const summary=Object.values((s.val()||{}) as Record<string, SummaryItem>); const open=Object.values((o.val()||{}) as Record<string, OpenPoItem>);
+    const summary=Object.values((s.val()||{}) as Record<string, SummaryItem>).filter((it)=>!Boolean(it.is_kanban)); const open=Object.values((o.val()||{}) as Record<string, OpenPoItem>);
     const byPart=open.reduce<Record<string,OpenPoItem[]>>((a,x)=>{const p=normalizePart(x.part); if(!p)return a; (a[p] ||= []).push(x); return a;},{});
     const g:Record<string,SummaryItem>={}; summary.forEach((it)=>{const p=normalizePart(it.part); if(!p)return; if(!g[p]) g[p]={part:p,description:it.description||it.spras_en||''}; g[p].nosea_required_qty=(g[p].nosea_required_qty||0)+Number(it.nosea_required_qty||0); g[p].sea_required_qty=(g[p].sea_required_qty||0)+Number(it.sea_required_qty||0); g[p].stock_qty=Number(it.stock_qty||0)});
     setRows(Object.values(g).map((it)=>{const req=mode==='sea'?Number(it.sea_required_qty||0):Number(it.nosea_required_qty||0); const gap=Number(it.stock_qty||0)-req; const p=normalizePart(it.part); return {...it,gap,normPart:p,openPos:gap<0?(byPart[p]||[]):[]};})); setLoading(false);
