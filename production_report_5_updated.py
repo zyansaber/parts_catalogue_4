@@ -374,6 +374,9 @@ def build_summary(df, inventory_df, open_po_df, desc_df):
     summary["lead_time"] = summary["lead_time"].fillna(0)
     summary["safety_stock"] = summary["safety_stock"].fillna(0)
 
+    # Production Required 页面不需要显示 kanban 料号
+    summary = summary[summary["is_kanban"] != True].copy()
+
     return summary
 
 # =========================
