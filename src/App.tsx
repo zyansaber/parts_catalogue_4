@@ -11,8 +11,10 @@ import TakePhotoPage from './pages/take-photo';
 import AdminPage from './pages/admin';
 import NotFound from './pages/NotFound';
 import ProductionRequiredAnalysisPage from './pages/production-required-analysis';
+import KanbanPartsPage from './pages/kanban-parts';
 import OpenPoVendor3060Page from './pages/openpo-vendor-3060';
 import OpenPoAllPage from './pages/openpo-all';
+import AppAdminPage from './pages/app-admin';
 
 const queryClient = new QueryClient();
 
@@ -33,8 +35,10 @@ const App = () => (
                 <Route path="/take-photo" element={<TakePhotoPage />} />
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/production-required" element={<ProductionRequiredAnalysisPage />} />
+                <Route path="/kanban-parts" element={<KanbanPartsPage />} />
                 <Route path="/openpo-vendor-3060" element={<OpenPoVendor3060Page />} />
                 <Route path="/openpo-all" element={<OpenPoAllPage />} />
+                <Route path="/app-admin" element={<AppAdminPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </div>
