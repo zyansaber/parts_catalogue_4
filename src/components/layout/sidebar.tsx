@@ -12,6 +12,7 @@ const navigation = [
   { key: 'takePhoto', href: '/take-photo', icon: Camera },
   { key: 'adminPanel', href: '/admin', icon: Settings },
   { key: 'productionRequired', href: '/production-required', icon: BarChart3 },
+  { key: 'kanbanParts', href: '/kanban-parts', icon: BarChart3 },
   { key: 'openPoVendor3060', href: '/openpo-vendor-3060', icon: FileText },
   { key: 'openPoAll', href: '/openpo-all', icon: FileText },
 ] as const;
