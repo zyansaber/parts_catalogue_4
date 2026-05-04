@@ -18,6 +18,16 @@ export const labels: Record<string, { zh: string; en: string }> = {
   orderDate: { zh: '下单日期', en: 'Order Date' },
   deliveryDate: { zh: '交付日期', en: 'Delivery Date' },
   description: { zh: '描述', en: 'Description' },
+  vendorName: { zh: '供应商名称', en: 'Vendor Name' },
+  purchasingGroup: { zh: '采购组', en: 'Purchasing Group' },
+  orderQty: { zh: '下单数量', en: 'Order Qty' },
+  receivedQty: { zh: '已收货数量', en: 'Received Qty' },
+  openQty: { zh: '未交数量', en: 'Open Qty' },
+  part: { zh: '零件号', en: 'Part' },
+  poNumber: { zh: '采购订单号', en: 'PO Number' },
+  poItem: { zh: '行项目', en: 'PO Item' },
+  totalOpenQty: { zh: '未交总数量', en: 'Total Open Qty' },
+  lineCount: { zh: '行数', en: 'Line Count' },
 
 };
 
