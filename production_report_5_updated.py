@@ -14,9 +14,9 @@ from datetime import datetime
 # =========================
 DSN = (
     "DRIVER={HDBODBC};"
-    "SERVERNODE=10.11.2.25:30241;"
-    "UID=BAOJIANFENG;"
-    "PWD=Xja@2025ABC;"
+    "SERVERNODE=xxxxx;"
+    "UID=xxxx;"
+    "PWD=xxxx;"
 )
 
 FIREBASE_URL = "https://partssr-default-rtdb.asia-southeast1.firebasedatabase.app/"
