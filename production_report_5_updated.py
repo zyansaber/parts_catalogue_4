@@ -14,8 +14,8 @@ from datetime import datetime
 # =========================
 DSN = (
     "DRIVER={HDBODBC};"
-    "SERVERNODE=xxxxx;"
-    "UID=xxxx;"
+    "SERVERNODE=xxxx;"
+    "UID=xxx;"
     "PWD=xxxx;"
 )
 
@@ -73,7 +73,7 @@ def get_chassis():
     return df[["Chassis", "Is_Sea"]]
 
 # =========================
-# SAP - Production Order
+# SAP
 # =========================
 def get_production_orders(chassis_list):
     if not chassis_list:
@@ -103,9 +103,6 @@ def get_production_orders(chassis_list):
         columns=["Chassis", "ProductionOrder"]
     )
 
-# =========================
-# RESB
-# =========================
 def get_resb_data(po_df):
     if po_df.empty:
         return pd.DataFrame(columns=[
@@ -127,16 +124,12 @@ def get_resb_data(po_df):
           AND r."MANDT"='800'
           AND r."AUFNR" IN ({",".join([f"'{o}'" for o in orders])})
         """
-
         df = pd.read_sql(sql, conn)
 
     return df if not df.empty else pd.DataFrame(columns=[
         "ProductionOrder","Part","RequiredQty","IssuedQty","OpenQty"
     ])
 
-# =========================
-# Inventory
-# =========================
 def get_inventory():
     sql = """
     SELECT MATNR AS "Part", SUM(LABST) AS "StockQty"
@@ -147,9 +140,6 @@ def get_inventory():
     with pyodbc.connect(DSN) as conn:
         return pd.read_sql(sql, conn)
 
-# =========================
-# Open PO（正确版本）
-# =========================
 def get_open_po_details():
     sql = """
     SELECT
@@ -175,6 +165,32 @@ def get_open_po_details():
         return pd.read_sql(sql, conn)
 
 # =========================
+# Kanban
+# =========================
+def get_kanban_parts():
+    sql = """
+    SELECT DISTINCT MATNR
+    FROM SAPHANADB.PKHD
+    WHERE WERKS='3111' AND MANDT='800'
+    """
+    with pyodbc.connect(DSN) as conn:
+        df = pd.read_sql(sql, conn)
+    return set(df["MATNR"].astype(str).str.strip())
+
+def get_kanban_extra():
+    sql = """
+    SELECT
+        marc."MATNR" AS "Part",
+        marc."PLIFZ" AS "LeadTime",
+        marc."EISBE" AS "SafetyStock"
+    FROM SAPHANADB.MARC marc
+    WHERE marc."WERKS"='3111'
+      AND marc."MANDT"='800'
+    """
+    with pyodbc.connect(DSN) as conn:
+        return pd.read_sql(sql, conn)
+
+# =========================
 # Build Dataset
 # =========================
 def build_dataset(chassis_df):
@@ -187,9 +203,10 @@ def build_dataset(chassis_df):
     return df
 
 # =========================
-# Summary（核心）
+# Summary（最终版）
 # =========================
 def build_summary(df, inv):
+
     df["Is_Sea"] = df["Is_Sea"].fillna(False)
 
     summary = df.groupby("Part").agg({
@@ -207,15 +224,32 @@ def build_summary(df, inv):
     summary = summary.merge(nosea, on="Part", how="left")
     summary = summary.merge(sea, on="Part", how="left")
 
-    summary = summary.merge(inv, on="Part", how="left")
-
     summary.fillna(0, inplace=True)
+
+    summary = summary.merge(inv, on="Part", how="left")
+    summary["StockQty"] = summary["StockQty"].fillna(0)
+
+    # Kanban
+    kanban_parts = get_kanban_parts()
+    summary["Is_Kanban"] = summary["Part"].apply(lambda x: x in kanban_parts)
+
+    extra = get_kanban_extra()
+    summary = summary.merge(extra, on="Part", how="left")
+
+    open_po = get_open_po_details()
+    po_sum = open_po.groupby("Part")["OpenQty"].sum().reset_index()
+    po_sum.rename(columns={"OpenQty":"open_po_qty"}, inplace=True)
+
+    summary = summary.merge(po_sum, on="Part", how="left")
+    summary["open_po_qty"] = summary["open_po_qty"].fillna(0)
 
     summary.rename(columns={
         "RequiredQty":"total_required_qty",
         "IssuedQty":"issued_qty",
         "OpenQty":"open_qty",
-        "StockQty":"stock_qty"
+        "StockQty":"stock_qty",
+        "LeadTime":"lead_time",
+        "SafetyStock":"safety_stock"
     }, inplace=True)
 
     return summary
@@ -250,7 +284,6 @@ def overwrite_table(name, records):
             "count": len(records)
         }
     })
-    print(f"✅ {name} 全量完成")
 
 def update_table(name, records):
     ref = db.reference(f"{ROOT}/{name}")
@@ -276,21 +309,16 @@ def update_table(name, records):
     for i in range(0, len(items), 300):
         ref.update(dict(items[i:i+300]))
 
-    print(f"✅ {name} 增量完成")
-
 # =========================
 # Upload
 # =========================
 def upload(df):
     inv = get_inventory()
-    open_po = get_open_po_details()
 
     summary = build_summary(df, inv)
+    open_po = get_open_po_details()
 
-    print("📤 Summary 全量")
     overwrite_table("summary", to_keyed_summary(summary))
-
-    print("📤 Open PO 增量")
     update_table("open_po", to_keyed_open_po(open_po))
 
 # =========================
@@ -298,16 +326,9 @@ def upload(df):
 # =========================
 def main():
     init_firebase()
-
-    print("🔄 MES...")
     chassis = get_chassis()
-
-    print("🔄 Build...")
     df = build_dataset(chassis)
-
-    print("🔄 Upload...")
     upload(df)
-
     print("🚀 Done")
 
 if __name__ == "__main__":
