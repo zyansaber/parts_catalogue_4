@@ -8,7 +8,22 @@ import { FirebaseService } from '@/services/firebase';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { getLang, t, type Lang } from '@/lib/i18n';
 
-type OpenPoItem = { po_number?: string; part?: string; vendor?: string; purchasinggroup?: string; orderdate?: string; deliverydate?: string; orderqty?: number; receivedqty?: number; openqty?: number; description?: string; };
+type OpenPoItem = {
+  po_number?: string;
+  part?: string;
+  vendor?: string;
+  purchasinggroup?: string;
+  orderdate?: string;
+  deliverydate?: string;
+  orderqty?: number;
+  receivedqty?: number;
+  openqty?: number;
+  description?: string;
+};
+
+type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
+
+const PAGE_SIZE = 30;
 
 const formatDate = (value?: string) => {
   if (!value) return '-';
@@ -25,8 +40,15 @@ export default function OpenPoVendor3060Page() {
   const [cancelled, setCancelled] = useState<Record<string, boolean>>({});
   const [stockByPart, setStockByPart] = useState<Record<string, number>>({});
   const [lang, setLang] = useState<Lang>(getLang());
+  const [purchaserFilter, setPurchaserFilter] = useState<PurchaserFilter>('all');
+  const [currentPage, setCurrentPage] = useState(1);
 
-  useEffect(() => { const fn = () => setLang(getLang()); window.addEventListener('language-change', fn); return () => window.removeEventListener('language-change', fn); }, []);
+  useEffect(() => {
+    const fn = () => setLang(getLang());
+    window.addEventListener('language-change', fn);
+    return () => window.removeEventListener('language-change', fn);
+  }, []);
+
   useEffect(() => {
     Promise.all([
       get(ref(database, 'production_report/open_po/items')),
@@ -35,17 +57,53 @@ export default function OpenPoVendor3060Page() {
       get(ref(database, 'app_admin/cancelled_openpo')),
     ]).then(([openSnap, allParts, mapSnap, cancelSnap]) => {
       setItems(Object.values((openSnap.val() || {}) as Record<string, OpenPoItem>));
-      const stockMap = Object.entries(allParts || {}).reduce<Record<string, number>>((acc, [material, part]) => { const key = String(material || '').trim(); if (!key) return acc; const partData = part as { Current_Stock_Qty?: number }; acc[key] = Number(partData.Current_Stock_Qty || 0); return acc; }, {});
+      const stockMap = Object.entries(allParts || {}).reduce<Record<string, number>>((acc, [material, part]) => {
+        const key = String(material || '').trim();
+        if (!key) return acc;
+        const partData = part as { Current_Stock_Qty?: number };
+        acc[key] = Number(partData.Current_Stock_Qty || 0);
+        return acc;
+      }, {});
       setStockByPart(stockMap);
       setMapping((mapSnap.val() || {}) as Record<string, string>);
       setCancelled((cancelSnap.val() || {}) as Record<string, boolean>);
     });
   }, []);
 
-  const filtered = useMemo(() => items.filter((i) => String(i.vendor || '').replace(/^0+/, '').trim() === '3060'), [items]);
+  const vendorFiltered = useMemo(
+    () => items.filter((i) => String(i.vendor || '').replace(/^0+/, '').trim() === '3060'),
+    [items],
+  );
+
+  const filtered = useMemo(() => {
+    if (purchaserFilter === 'all') return vendorFiltered;
+    return vendorFiltered.filter((row) => {
+      const purchaser = mapping[String(row.purchasinggroup || '')] || row.purchasinggroup || '';
+      if (purchaserFilter === 'productionLongtreeOrders') return purchaser === 'Karen A.';
+      if (purchaserFilter === 'sparePartsOrders') return purchaser === 'Nishi A.';
+      return true;
+    });
+  }, [vendorFiltered, purchaserFilter, mapping]);
+
   const totalOpenQty = useMemo(() => filtered.reduce((sum, item) => sum + Number(item.openqty || 0), 0), [filtered]);
   const openPoNumber = useMemo(() => new Set(filtered.map((x) => x.po_number).filter(Boolean)).size, [filtered]);
   const displayNumber = (value?: number) => Number(value || 0).toLocaleString();
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pagedRows = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [purchaserFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const keyOf = (row: OpenPoItem) => `${row.po_number || 'po'}_${row.part || 'part'}`;
   const toggleCancel = async (row: OpenPoItem) => {
@@ -79,5 +137,131 @@ export default function OpenPoVendor3060Page() {
     URL.revokeObjectURL(url);
   };
 
-  return <div className="space-y-6"><div className="flex items-center justify-between"><h1 className="text-3xl font-bold text-gray-900">{t(lang, 'openPoVendor3060')}</h1><Button onClick={downloadExcel}>{lang === 'zh' ? '下载Excel' : 'Download Excel'}</Button></div><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Card><CardHeader><CardTitle>{t(lang, 'lineCount')}</CardTitle></CardHeader><CardContent className="text-2xl font-semibold">{openPoNumber}</CardContent></Card><Card><CardHeader><CardTitle>{t(lang, 'totalOpenQty')}</CardTitle></CardHeader><CardContent className="text-2xl font-semibold">{displayNumber(totalOpenQty)}</CardContent></Card></div><Card><CardContent className="overflow-auto pt-6"><table className="min-w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2">{t(lang, 'poNumber')}</th><th className="p-2">Australia Purchaser</th><th className="p-2">{t(lang, 'part')}</th><th className="p-2">Photo</th><th className="p-2">Australian Stock</th><th className="p-2">{t(lang, 'description')}</th><th className="p-2">{t(lang, 'orderDate')}</th><th className="p-2">{t(lang, 'deliveryDate')}</th><th className="p-2 text-right">{t(lang, 'orderQty')}</th><th className="p-2 text-right">{t(lang, 'receivedQty')}</th><th className="p-2 text-right">{t(lang, 'openQty')}</th><th className="p-2">{lang === 'zh' ? '操作' : 'Action'}</th></tr></thead><tbody>{filtered.map((r, i) => { const cancelledRow = cancelled[keyOf(r)]; return <tr key={i} className={`border-b ${cancelledRow ? 'line-through text-gray-400' : ''}`}><td className="p-2">{r.po_number || '-'}</td><td className="p-2">{mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-'}</td><td className="p-2">{r.part || '-'}</td><td className="p-2"><Dialog><DialogTrigger asChild><button className="h-12 w-12 overflow-hidden rounded border"><ImageWithFallback src={FirebaseService.getPartImageUrl(r.part || '')} fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)} alt={r.part || 'part'} className="h-full w-full object-contain" /></button></DialogTrigger><DialogContent className="max-w-xl"><div className="h-[60vh] overflow-hidden rounded"><ImageWithFallback src={FirebaseService.getPartImageUrl(r.part || '')} fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)} alt={r.part || 'part'} className="h-full w-full object-contain" /></div></DialogContent></Dialog></td><td className="p-2">{displayNumber(stockByPart[String(r.part || '').trim()] || 0)}</td><td className="p-2">{r.description || '-'}</td><td className="p-2">{formatDate(r.orderdate)}</td><td className="p-2">{formatDate(r.deliverydate)}</td><td className="p-2 text-right">{displayNumber(r.orderqty)}</td><td className="p-2 text-right">{displayNumber(r.receivedqty)}</td><td className="p-2 text-right">{displayNumber(r.openqty)}</td><td className="p-2"><Button variant="outline" size="sm" onClick={() => toggleCancel(r)}>{cancelledRow ? (lang === 'zh' ? '恢复' : 'Undo') : 'Cancel'}</Button></td></tr>; })}</tbody></table></CardContent></Card></div>;
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-gray-900">{t(lang, 'openPoVendor3060')}</h1>
+        <Button onClick={downloadExcel}>{lang === 'zh' ? '下载Excel' : 'Download Excel'}</Button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Button
+          className="h-14 text-base"
+          variant={purchaserFilter === 'productionLongtreeOrders' ? 'default' : 'outline'}
+          onClick={() => setPurchaserFilter('productionLongtreeOrders')}
+        >
+          {lang === 'zh' ? '生产 Longtree 订单（Karen A.）' : 'Production Longtree Orders (Karen A.)'}
+        </Button>
+        <Button
+          className="h-14 text-base"
+          variant={purchaserFilter === 'sparePartsOrders' ? 'default' : 'outline'}
+          onClick={() => setPurchaserFilter('sparePartsOrders')}
+        >
+          {lang === 'zh' ? '备件订单（Nishi A.）' : 'Spare Parts Orders (Nishi A.)'}
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button variant={purchaserFilter === 'all' ? 'default' : 'outline'} onClick={() => setPurchaserFilter('all')}>
+          {lang === 'zh' ? '全部' : 'All'}
+        </Button>
+        <span className="text-sm text-gray-500">
+          {lang === 'zh'
+            ? `第 ${currentPage} / ${totalPages} 页（每页 ${PAGE_SIZE} 条）`
+            : `Page ${currentPage} of ${totalPages} (${PAGE_SIZE} rows/page)`}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle>{t(lang, 'lineCount')}</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold">{openPoNumber}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>{t(lang, 'totalOpenQty')}</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold">{displayNumber(totalOpenQty)}</CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="overflow-auto pt-6">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="p-2">{t(lang, 'poNumber')}</th>
+                <th className="p-2">{lang === 'zh' ? '采购专员' : 'Australia Purchaser'}</th>
+                <th className="p-2">{t(lang, 'part')}</th>
+                <th className="p-2">Photo</th>
+                <th className="p-2">Australian Stock</th>
+                <th className="p-2">{t(lang, 'description')}</th>
+                <th className="p-2">{t(lang, 'orderDate')}</th>
+                <th className="p-2">{t(lang, 'deliveryDate')}</th>
+                <th className="p-2 text-right">{t(lang, 'orderQty')}</th>
+                <th className="p-2 text-right">{t(lang, 'receivedQty')}</th>
+                <th className="p-2 text-right">{t(lang, 'openQty')}</th>
+                <th className="p-2">{lang === 'zh' ? '操作' : 'Action'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRows.map((r, i) => {
+                const cancelledRow = cancelled[keyOf(r)];
+                return (
+                  <tr key={i} className={`border-b ${cancelledRow ? 'line-through text-gray-400' : ''}`}>
+                    <td className="p-2">{r.po_number || '-'}</td>
+                    <td className="p-2">{mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-'}</td>
+                    <td className="p-2">{r.part || '-'}</td>
+                    <td className="p-2">
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <button className="h-12 w-12 overflow-hidden rounded border">
+                            <ImageWithFallback
+                              src={FirebaseService.getPartImageUrl(r.part || '')}
+                              fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
+                              alt={r.part || 'part'}
+                              className="h-full w-full object-contain"
+                            />
+                          </button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-xl">
+                          <div className="h-[60vh] overflow-hidden rounded">
+                            <ImageWithFallback
+                              src={FirebaseService.getPartImageUrl(r.part || '')}
+                              fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
+                              alt={r.part || 'part'}
+                              className="h-full w-full object-contain"
+                            />
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </td>
+                    <td className="p-2">{displayNumber(stockByPart[String(r.part || '').trim()] || 0)}</td>
+                    <td className="p-2">{r.description || '-'}</td>
+                    <td className="p-2">{formatDate(r.orderdate)}</td>
+                    <td className="p-2">{formatDate(r.deliverydate)}</td>
+                    <td className="p-2 text-right">{displayNumber(r.orderqty)}</td>
+                    <td className="p-2 text-right">{displayNumber(r.receivedqty)}</td>
+                    <td className="p-2 text-right">{displayNumber(r.openqty)}</td>
+                    <td className="p-2">
+                      <Button variant="outline" size="sm" onClick={() => toggleCancel(r)}>
+                        {cancelledRow ? (lang === 'zh' ? '恢复' : 'Undo') : 'Cancel'}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>
+          {lang === 'zh' ? '上一页' : 'Previous'}
+        </Button>
+        <Button variant="outline" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}>
+          {lang === 'zh' ? '下一页' : 'Next'}
+        </Button>
+      </div>
+    </div>
+  );
 }
