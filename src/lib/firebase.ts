@@ -3,14 +3,14 @@ import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBn4IJp4Y58E8hoLr3qJ3RM7f3AJIxD1I4",
-  authDomain: "partssr.firebaseapp.com",
-  databaseURL: "https://partssr-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "partssr",
-  storageBucket: "partssr.firebasestorage.app",
-  messagingSenderId: "170192235843",
-  appId: "1:170192235843:web:e94eb765a20081e7ae93f6",
-  measurementId: "G-E99627W9KP"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 // Initialize Firebase
