@@ -10,7 +10,11 @@ export const labels: Record<string, { zh: string; en: string }> = {
   language: { zh: '语言', en: 'Language' },
 
   productionRequired: { zh: '生产需求分析', en: 'Production Required' },
-  openPoVendor3060: { zh: '3060供应商 OpenPO', en: 'OpenPO Vendor 3060' },
+  kanbanParts: { zh: 'Kanban 零件', en: 'Kanban Parts' },
+  openPoVendor3060: { zh: 'Longtree 订单追踪', en: 'Longtree Order Track' },
+  appAdmin: { zh: '应用管理', en: 'App Admin' },
+  partsRequestsApi: { zh: '零件申请API', en: 'Parts Requests API' },
+  partsDelivery: { zh: '零件发运汇总', en: 'Parts Delivery' },
   openPoAll: { zh: '全部 OpenPO', en: 'All OpenPO' },
   search: { zh: '搜索', en: 'Search' },
   filter: { zh: '过滤', en: 'Filter' },
@@ -18,6 +22,16 @@ export const labels: Record<string, { zh: string; en: string }> = {
   orderDate: { zh: '下单日期', en: 'Order Date' },
   deliveryDate: { zh: '交付日期', en: 'Delivery Date' },
   description: { zh: '描述', en: 'Description' },
+  vendorName: { zh: '供应商名称', en: 'Vendor Name' },
+  purchasingGroup: { zh: '采购组', en: 'Purchasing Group' },
+  orderQty: { zh: '下单数量', en: 'Order Qty' },
+  receivedQty: { zh: '已收货数量', en: 'Received Qty' },
+  openQty: { zh: '未交数量', en: 'Open Qty' },
+  part: { zh: '零件号', en: 'Part' },
+  poNumber: { zh: '采购订单号', en: 'PO Number' },
+  poItem: { zh: '行项目', en: 'PO Item' },
+  totalOpenQty: { zh: 'Open 零件总数量', en: 'Total Open Parts Qty' },
+  lineCount: { zh: 'Open PO 数量', en: 'Open PO Number' },
 
 };
 
