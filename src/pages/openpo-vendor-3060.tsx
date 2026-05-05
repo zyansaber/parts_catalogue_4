@@ -30,13 +30,12 @@ export default function OpenPoVendor3060Page() {
   useEffect(() => {
     Promise.all([
       get(ref(database, 'production_report/open_po/items')),
-      get(ref(database, 'production_report/summary/items')),
+      FirebaseService.getAllParts(),
       get(ref(database, 'app_admin/purchasing_group_mapping')),
       get(ref(database, 'app_admin/cancelled_openpo')),
-    ]).then(([openSnap, summarySnap, mapSnap, cancelSnap]) => {
+    ]).then(([openSnap, allParts, mapSnap, cancelSnap]) => {
       setItems(Object.values((openSnap.val() || {}) as Record<string, OpenPoItem>));
-      const summaryItems = Object.values((summarySnap.val() || {}) as Record<string, { part?: string; stock_qty?: number }>);
-      const stockMap = summaryItems.reduce<Record<string, number>>((acc, item) => { const key = String(item.part || '').trim(); if (!key) return acc; acc[key] = Number(item.stock_qty || 0); return acc; }, {});
+      const stockMap = Object.entries(allParts || {}).reduce<Record<string, number>>((acc, [material, part]) => { const key = String(material || '').trim(); if (!key) return acc; const partData = part as { Current_Stock_Qty?: number }; acc[key] = Number(partData.Current_Stock_Qty || 0); return acc; }, {});
       setStockByPart(stockMap);
       setMapping((mapSnap.val() || {}) as Record<string, string>);
       setCancelled((cancelSnap.val() || {}) as Record<string, boolean>);
