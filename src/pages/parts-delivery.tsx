@@ -1,0 +1,86 @@
+import { useEffect, useMemo, useState } from 'react';
+import { getApp, getApps, initializeApp } from 'firebase/app';
+import { get, getDatabase, ref } from 'firebase/database';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { getLang, type Lang } from '@/lib/i18n';
+
+type Ticket = Record<string, any>;
+type Row = { part: string; qty: number; tickets: number };
+
+const ticketFirebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyBVqlE55a2CUDmy_0NRWyL-eHE-ptz3Jo0',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'snowy-hr-report.firebaseapp.com',
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || 'https://snowy-hr-report-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'snowy-hr-report',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'snowy-hr-report.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '827350144699',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:827350144699:web:c26b2e18bf3765cb877b9e',
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-JG5WXG2JWS',
+};
+
+const app = getApps().some((a) => a.name === 'ticketsApp') ? getApp('ticketsApp') : initializeApp(ticketFirebaseConfig, 'ticketsApp');
+const ticketDb = getDatabase(app);
+
+async function loadTicketData(): Promise<Record<string, Ticket>> {
+  const snap = await get(ref(ticketDb, 'c4cTickets_test/tickets'));
+  return (snap.val() || {}) as Record<string, Ticket>;
+}
+
+function useTicketData() {
+  const [tickets, setTickets] = useState<Record<string, Ticket>>({});
+  useEffect(() => { loadTicketData().then(setTickets); }, []);
+  return tickets;
+}
+
+function parseSalesDetails(ticket: Ticket): any[] {
+  const raw = ticket['Sales Order Details'] || ticket.salesOrderDetails || ticket.sales_order_details || [];
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+      if (typeof parsed === 'object' && parsed) return Object.values(parsed);
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'object' && raw) return Object.values(raw);
+  return [];
+}
+
+export default function PartsDeliveryPage() {
+  const [lang, setLang] = useState<Lang>(getLang());
+  const [dealer, setDealer] = useState('');
+  const tickets = useTicketData();
+
+  useEffect(() => { const fn = () => setLang(getLang()); window.addEventListener('language-change', fn); return () => window.removeEventListener('language-change', fn); }, []);
+
+  const dealers = useMemo(() => Array.from(new Set(Object.values(tickets).map((t) => String(t.dealer || t.Dealer || '')).filter(Boolean))).sort(), [tickets]);
+  useEffect(() => { if (!dealer && dealers.length) setDealer(dealers[0]); }, [dealers, dealer]);
+
+  const rows = useMemo(() => {
+    const map: Record<string, Row> = {};
+    Object.values(tickets).forEach((ticket) => {
+      const ticketDealer = String(ticket.dealer || ticket.Dealer || '');
+      const status = String(ticket.status || ticket.Status || '').toLowerCase();
+      if (dealer && ticketDealer !== dealer) return;
+      const isClosed = ['closed', 'delivered', 'cancelled', 'canceled'].includes(status);
+      if (isClosed) return;
+
+      parseSalesDetails(ticket).forEach((item) => {
+        const deliveryCount = Number(item.deliveryCount ?? item.delivery_count ?? 0);
+        if (deliveryCount !== 0) return;
+        const part = String(item.part || item.partCode || item.material || item.Material || '').trim();
+        const qty = Number(item.qty || item.quantity || item.requiredQty || item.requestQty || 0);
+        if (!part) return;
+        if (!map[part]) map[part] = { part, qty: 0, tickets: 0 };
+        map[part].qty += qty || 1;
+        map[part].tickets += 1;
+      });
+    });
+    return Object.values(map).sort((a, b) => b.qty - a.qty);
+  }, [tickets, dealer]);
+
+  return <div className="space-y-6"><h1 className="text-3xl font-bold">{lang === 'zh' ? 'Parts Delivery（deliveryCount=0）' : 'Parts Delivery (deliveryCount=0)'}</h1><Card><CardHeader><CardTitle>{lang === 'zh' ? 'Dealer 过滤' : 'Dealer Filter'}</CardTitle></CardHeader><CardContent><Input value={dealer} onChange={(e) => setDealer(e.target.value)} list="dealers" /><datalist id="dealers">{dealers.map((d) => <option key={d} value={d} />)}</datalist><p className="mt-2 text-xs text-gray-500">{lang === 'zh' ? `Tickets: ${Object.keys(tickets).length} | Dealers: ${dealers.length}` : `Tickets: ${Object.keys(tickets).length} | Dealers: ${dealers.length}`}</p></CardContent></Card><Card><CardHeader><CardTitle>{rows.length} parts</CardTitle></CardHeader><CardContent className="overflow-auto">{rows.length === 0 ? <div className="py-8 text-center text-gray-500">{lang === 'zh' ? '当前筛选无数据，请尝试清空 Dealer 或检查 Sales Order Details / deliveryCount 字段格式。' : 'No data for current filter. Try clearing Dealer or verify Sales Order Details / deliveryCount format.'}</div> : <table className="min-w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-left">Part</th><th className="p-2 text-left">Qty</th><th className="p-2 text-left">Ticket Count</th></tr></thead><tbody>{rows.map((r) => <tr key={r.part} className="border-b"><td className="p-2">{r.part}</td><td className="p-2">{r.qty}</td><td className="p-2">{r.tickets}</td></tr>)}</tbody></table>}</CardContent></Card></div>;
+}
