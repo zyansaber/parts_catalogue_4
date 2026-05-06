@@ -10,14 +10,14 @@ const navigation = [
   { key: 'bomReference', href: '/bom', icon: FileText },
   { key: 'partApplication', href: '/application', icon: PlusCircle },
   { key: 'takePhoto', href: '/take-photo', icon: Camera },
-  { key: 'adminPanel', href: '/admin', icon: Settings },
   { key: 'productionRequired', href: '/production-required', icon: BarChart3 },
   { key: 'kanbanParts', href: '/kanban-parts', icon: BarChart3 },
   { key: 'openPoVendor3060', href: '/openpo-vendor-3060', icon: FileText },
   { key: 'openPoAll', href: '/openpo-all', icon: FileText },
-  { key: 'appAdmin', href: '/app-admin', icon: Settings },
   { key: 'partsRequestsApi', href: '/parts-requests-api', icon: FileText },
   { key: 'partsDelivery', href: '/parts-delivery', icon: FileText },
+  { key: 'appAdmin', href: '/app-admin', icon: Settings },
+  { key: 'adminPanel', href: '/admin', icon: Settings },
 ] as const;
 
 export function Sidebar() {
