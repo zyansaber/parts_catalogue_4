@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ImageWithFallback } from '@/components/ui/image-with-fallback';
 import { FirebaseService } from '@/services/firebase';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
-import { getLang, resolvePartDescription, t, type Lang } from '@/lib/i18n';
+import { getLang, t, type Lang } from '@/lib/i18n';
 
 type OpenPoItem = {
   po_number?: string;
@@ -19,8 +19,6 @@ type OpenPoItem = {
   receivedqty?: number;
   openqty?: number;
   description?: string;
-  spras_en?: string;
-  spras_zh?: string;
 };
 
 type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
@@ -121,7 +119,7 @@ export default function OpenPoVendor3060Page() {
       r.po_number || '-',
       mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-',
       r.part || '-',
-      resolvePartDescription(lang, { SPRAS_EN: r.spras_en || r.description, SPRAS_ZH: r.spras_zh }) || '-',
+      r.description || '-',
       formatDate(r.orderdate),
       formatDate(r.deliverydate),
       String(r.orderqty || 0),
@@ -193,8 +191,8 @@ export default function OpenPoVendor3060Page() {
                 <th className="p-2">{t(lang, 'poNumber')}</th>
                 <th className="p-2">{lang === 'zh' ? '采购专员' : 'Australia Purchaser'}</th>
                 <th className="p-2">{t(lang, 'part')}</th>
-                <th className="p-2">{lang === 'zh' ? '照片' : 'Photo'}</th>
-                <th className="p-2">{lang === 'zh' ? '澳洲库存' : 'Australian Stock'}</th>
+                <th className="p-2">Photo</th>
+                <th className="p-2">Australian Stock</th>
                 <th className="p-2">{t(lang, 'description')}</th>
                 <th className="p-2">{t(lang, 'orderDate')}</th>
                 <th className="p-2">{t(lang, 'deliveryDate')}</th>
@@ -237,7 +235,7 @@ export default function OpenPoVendor3060Page() {
                       </Dialog>
                     </td>
                     <td className="p-2">{displayNumber(stockByPart[String(r.part || '').trim()] || 0)}</td>
-                    <td className="p-2">{resolvePartDescription(lang, { SPRAS_EN: r.spras_en || r.description, SPRAS_ZH: r.spras_zh }) || '-'}</td>
+                    <td className="p-2">{r.description || '-'}</td>
                     <td className="p-2">{formatDate(r.orderdate)}</td>
                     <td className="p-2">{formatDate(r.deliverydate)}</td>
                     <td className="p-2 text-right">{displayNumber(r.orderqty)}</td>
