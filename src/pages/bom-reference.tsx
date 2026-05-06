@@ -10,6 +10,7 @@ import { FirebaseService } from '@/services/firebase';
 import { Part, BoMComponent } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
+import { getLang, resolvePartDescription, type Lang } from '@/lib/i18n';
 
 export default function BomReferencePage() {
   const [bomModels, setBomModels] = useState<string[]>([]);
@@ -20,8 +21,10 @@ export default function BomReferencePage() {
   const [loadingComponents, setLoadingComponents] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState<string>('all');
+  const [lang, setLang] = useState<Lang>(getLang());
 
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
+  useEffect(() => { const fn = () => setLang(getLang()); window.addEventListener('language-change', fn); return () => window.removeEventListener('language-change', fn); }, []);
 
   // Load available BoM models on component mount
   useEffect(() => {
@@ -254,7 +257,7 @@ export default function BomReferencePage() {
                       {/* Component Description */}
                       <div className="md:col-span-2">
                         <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Component Description</label>
-                        <p className="text-sm text-gray-900 line-clamp-2">{component.Component_Description || part?.SPRAS_EN || 'No description'}</p>
+                        <p className="text-sm text-gray-900 line-clamp-2">{component.Component_Description || (part ? resolvePartDescription(lang, part) : '') || 'No description'}</p>
                       </div>
                       
                       {/* Standard Price */}
