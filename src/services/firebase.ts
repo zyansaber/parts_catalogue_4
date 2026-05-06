@@ -69,7 +69,7 @@ export class FirebaseService {
         if (count >= limit) return;
         
         const matchesMaterial = material.toLowerCase().includes(searchLower);
-        const matchesDescription = (part.SPRAS_EN || '').toLowerCase().includes(searchLower);
+        const matchesDescription = ((part.SPRAS_EN || '').toLowerCase().includes(searchLower) || (part.SPRAS_ZH || '').toLowerCase().includes(searchLower));
 
         if (
           matchesMaterial ||
