@@ -12,7 +12,6 @@ import { PartSummaryData } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { getLang, resolvePartDescription, type Lang } from '@/lib/i18n';
 
 export default function PartsSummaryPage() {
   const [parts, setParts] = useState<PartSummaryData[]>([]);
@@ -24,10 +23,8 @@ export default function PartsSummaryPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
-  const [lang, setLang] = useState<Lang>(getLang());
 
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
-  useEffect(() => { const fn = () => setLang(getLang()); window.addEventListener('language-change', fn); return () => window.removeEventListener('language-change', fn); }, []);
 
   // Load parts data
   useEffect(() => {
@@ -82,7 +79,7 @@ export default function PartsSummaryPage() {
     const filtered = parts.filter(part => {
       const matchesSearch = !debouncedSearchTerm || 
         part.Material?.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-        (part.SPRAS_EN?.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) || part.SPRAS_ZH?.toLowerCase().includes(debouncedSearchTerm.toLowerCase())) ||
+        part.SPRAS_EN?.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
         part.Supplier_Name?.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
       
       const matchesSupplier = selectedSupplier === 'all' || part.Supplier_Name === selectedSupplier;
@@ -291,7 +288,7 @@ export default function PartsSummaryPage() {
                   x: part.Sales_Qty_PGI_2025 || 0,
                   y: part['Dealer_vs_Std_%'] || 0,
                   material: part.Material,
-                  description: resolvePartDescription(lang, part),
+                  description: part.SPRAS_EN,
                   sales: part.Sales_Qty_PGI_2025 || 0,
                   margin: part['Dealer_vs_Std_%'] || 0
                 }))}
@@ -421,7 +418,7 @@ export default function PartsSummaryPage() {
                       {part.Material}
                     </TableCell>
                     <TableCell className="max-w-xs truncate">
-                      {resolvePartDescription(lang, part) || 'No description'}
+                      {part.SPRAS_EN || 'No description'}
                     </TableCell>
                     <TableCell>
                       {formatCurrency(part.Standard_Price || 0)}
