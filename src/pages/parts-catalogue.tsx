@@ -13,6 +13,7 @@ import { FirebaseService } from '@/services/firebase';
 import { Part } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
+import { getLang, resolvePartDescription, type Lang } from '@/lib/i18n';
 
 export default function PartsCataloguePage() {
   const [allParts, setAllParts] = useState<Record<string, Part>>({});
@@ -26,9 +27,11 @@ export default function PartsCataloguePage() {
   const [isSearching, setIsSearching] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [lang, setLang] = useState<Lang>(getLang());
   const itemsPerPage = 50;
 
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
+  useEffect(() => { const fn = () => setLang(getLang()); window.addEventListener('language-change', fn); return () => window.removeEventListener('language-change', fn); }, []);
 
   // Load initial data and handle search
   useEffect(() => {
@@ -208,7 +211,7 @@ export default function PartsCataloguePage() {
                 <ImageWithFallback
                   src={FirebaseService.getPartImageUrl(material)}
                   fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(material).slice(1)}
-                  alt={part.SPRAS_EN || material}
+                  alt={resolvePartDescription(lang, part) || material}
                   className="w-full h-full object-contain"
                   fallbackClassName="w-full h-full rounded-lg flex items-center justify-center text-gray-400 text-sm"
                 />
@@ -233,7 +236,7 @@ export default function PartsCataloguePage() {
                           <ImageWithFallback
                             src={FirebaseService.getPartImageUrl(selectedPart.material)}
                             fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(selectedPart.material).slice(1)}
-                            alt={selectedPart.part.SPRAS_EN || selectedPart.material}
+                            alt={resolvePartDescription(lang, selectedPart.part) || selectedPart.material}
                             className="w-full h-full object-contain"
                             fallbackClassName="w-full h-full rounded-lg flex items-center justify-center text-gray-400"
                           />
@@ -246,7 +249,7 @@ export default function PartsCataloguePage() {
                             </div>
                             <div>
                               <label className="text-sm font-medium text-gray-500">Description</label>
-                              <p className="text-gray-900">{selectedPart.part.SPRAS_EN || '—'}</p>
+                              <p className="text-gray-900">{resolvePartDescription(lang, selectedPart.part) || '—'}</p>
                             </div>
                             <div>
                               <label className="text-sm font-medium text-gray-500">Supplier</label>
@@ -307,7 +310,7 @@ export default function PartsCataloguePage() {
                 <div>
                   <h3 className="font-mono text-xs font-bold text-blue-600 mb-1">{material}</h3>
                   <p className="text-xs text-gray-600 line-clamp-2 min-h-[2rem]">
-                    {part.SPRAS_EN || 'No description'}
+                    {resolvePartDescription(lang, part) || 'No description'}
                   </p>
                 </div>
                 

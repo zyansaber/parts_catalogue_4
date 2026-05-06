@@ -19,6 +19,8 @@ type OpenPoItem = {
   receivedqty?: number;
   openqty?: number;
   description?: string;
+  spras_en?: string;
+  spras_zh?: string;
 };
 
 type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
@@ -39,6 +41,7 @@ export default function OpenPoVendor3060Page() {
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [cancelled, setCancelled] = useState<Record<string, boolean>>({});
   const [stockByPart, setStockByPart] = useState<Record<string, number>>({});
+  const [descByPart, setDescByPart] = useState<Record<string, { en: string; zh: string }>>({});
   const [lang, setLang] = useState<Lang>(getLang());
   const [purchaserFilter, setPurchaserFilter] = useState<PurchaserFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -64,7 +67,18 @@ export default function OpenPoVendor3060Page() {
         acc[key] = Number(partData.Current_Stock_Qty || 0);
         return acc;
       }, {});
+      const partDescMap = Object.entries(allParts || {}).reduce<Record<string, { en: string; zh: string }>>((acc, [material, part]) => {
+        const key = String(material || '').trim();
+        if (!key) return acc;
+        const partData = part as { SPRAS_EN?: string; SPRAS_ZH?: string };
+        acc[key] = {
+          en: String(partData.SPRAS_EN || ''),
+          zh: String(partData.SPRAS_ZH || ''),
+        };
+        return acc;
+      }, {});
       setStockByPart(stockMap);
+      setDescByPart(partDescMap);
       setMapping((mapSnap.val() || {}) as Record<string, string>);
       setCancelled((cancelSnap.val() || {}) as Record<string, boolean>);
     });
@@ -114,12 +128,13 @@ export default function OpenPoVendor3060Page() {
   };
 
   const downloadExcel = () => {
-    const headers = ['PO Number', 'Australia Purchaser', 'Part', 'Description', 'Order Date', 'Delivery Date', 'Order Qty', 'Received Qty', 'Open Qty', 'Cancelled'];
+    const headers = ['PO Number', 'Australia Purchaser', 'Part', 'Description EN (PO)', 'Description ZH (By Part)', 'Order Date', 'Delivery Date', 'Order Qty', 'Received Qty', 'Open Qty', 'Cancelled'];
     const rows = filtered.map((r) => [
       r.po_number || '-',
       mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-',
       r.part || '-',
-      r.description || '-',
+      r.spras_en || r.description || '-',
+      descByPart[String(r.part || '').trim()]?.zh || r.spras_zh || '-',
       formatDate(r.orderdate),
       formatDate(r.deliverydate),
       String(r.orderqty || 0),
@@ -191,9 +206,9 @@ export default function OpenPoVendor3060Page() {
                 <th className="p-2">{t(lang, 'poNumber')}</th>
                 <th className="p-2">{lang === 'zh' ? '采购专员' : 'Australia Purchaser'}</th>
                 <th className="p-2">{t(lang, 'part')}</th>
-                <th className="p-2">Photo</th>
-                <th className="p-2">Australian Stock</th>
-                <th className="p-2">{t(lang, 'description')}</th>
+                <th className="p-2">{lang === 'zh' ? '照片' : 'Photo'}</th>
+                <th className="p-2">{lang === 'zh' ? '澳洲库存' : 'Australian Stock'}</th>
+                <th className="p-2">{lang === 'zh' ? '描述（英文PO / 中文主数据）' : 'Description (EN from PO / ZH from Part Master)'}</th>
                 <th className="p-2">{t(lang, 'orderDate')}</th>
                 <th className="p-2">{t(lang, 'deliveryDate')}</th>
                 <th className="p-2 text-right">{t(lang, 'orderQty')}</th>
@@ -235,7 +250,12 @@ export default function OpenPoVendor3060Page() {
                       </Dialog>
                     </td>
                     <td className="p-2">{displayNumber(stockByPart[String(r.part || '').trim()] || 0)}</td>
-                    <td className="p-2">{r.description || '-'}</td>
+                    <td className="p-2">
+                      <div className="space-y-1">
+                        <div><span className="text-xs text-gray-500">EN:</span> {r.spras_en || r.description || '-'}</div>
+                        <div><span className="text-xs text-gray-500">ZH:</span> {descByPart[String(r.part || '').trim()]?.zh || r.spras_zh || '-'}</div>
+                      </div>
+                    </td>
                     <td className="p-2">{formatDate(r.orderdate)}</td>
                     <td className="p-2">{formatDate(r.deliverydate)}</td>
                     <td className="p-2 text-right">{displayNumber(r.orderqty)}</td>
