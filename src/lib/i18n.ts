@@ -52,3 +52,11 @@ export function t(lang: Lang, key: keyof typeof labels): string {
   const item = labels[key];
   return lang === 'zh' ? item.zh : item.en;
 }
+
+export function resolvePartDescription(
+  lang: Lang,
+  descriptions: { SPRAS_EN?: string; SPRAS_ZH?: string }
+): string {
+  if (lang === 'zh') return descriptions.SPRAS_ZH || descriptions.SPRAS_EN || '';
+  return descriptions.SPRAS_EN || '';
+}
