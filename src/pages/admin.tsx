@@ -14,6 +14,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { Switch } from '@/components/ui/switch';
+import { getLang, resolvePartDescription, type Lang } from '@/lib/i18n';
 
 export default function AdminPage() {
   const [parts, setParts] = useState<Record<string, Part>>({});
@@ -24,6 +25,7 @@ export default function AdminPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [lang, setLang] = useState<Lang>(getLang());
 
   // Refs for camera functionality
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +46,7 @@ export default function AdminPage() {
   });
 
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
+  useEffect(() => { const fn = () => setLang(getLang()); window.addEventListener('language-change', fn); return () => window.removeEventListener('language-change', fn); }, []);
 
   useEffect(() => {
     loadParts();
@@ -58,7 +61,7 @@ export default function AdminPage() {
         const searchLower = debouncedSearchTerm.toLowerCase();
         return (
           material.toLowerCase().includes(searchLower) ||
-          (part.SPRAS_EN || '').toLowerCase().includes(searchLower) ||
+          ((part.SPRAS_EN || '').toLowerCase().includes(searchLower) || (part.SPRAS_ZH || '').toLowerCase().includes(searchLower)) ||
           (part.Supplier_Name || '').toLowerCase().includes(searchLower)
         );
       }).slice(0, 100);
@@ -313,7 +316,7 @@ export default function AdminPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
                       <p className="font-mono text-sm font-bold text-blue-600">{material}</p>
-                      <p className="text-sm text-gray-600 truncate">{part.SPRAS_EN || 'No description'}</p>
+                      <p className="text-sm text-gray-600 truncate">{resolvePartDescription(lang, part) || 'No description'}</p>
                       <p className="text-xs text-gray-500">{part.Supplier_Name || 'Unknown supplier'}</p>
                     </div>
                     <div className="flex items-center space-x-2">

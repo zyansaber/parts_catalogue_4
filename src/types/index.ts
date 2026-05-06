@@ -1,6 +1,7 @@
 export interface Part {
   Material?: string;
   SPRAS_EN?: string;
+  SPRAS_ZH?: string;
   Standard_Price?: number;
   Current_Stock_Qty?: number;
   Sales_Qty_PGI_2025?: number;
@@ -25,6 +26,7 @@ export interface Part {
 export interface PartSummaryData {
   Material: string;
   SPRAS_EN: string;
+  SPRAS_ZH?: string;
   Standard_Price: number;
   Current_Stock_Qty: number;
   Sales_Qty_PGI_2025: number;
