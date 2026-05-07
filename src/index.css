@@ -99,3 +99,15 @@
     @apply bg-background text-foreground;
   }
 }
+
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+    min-width: 0;
+  }
+
+  th, td {
+    word-break: break-word;
+  }
+}
