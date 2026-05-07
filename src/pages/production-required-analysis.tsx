@@ -15,17 +15,6 @@ import { getLang, resolvePartDescription, t, type Lang } from '@/lib/i18n';
 
 type SummaryItem = { part?: string; nosea_required_qty?: number; sea_required_qty?: number; issued_qty?: number; stock_qty?: number; description?: string; spras_en?: string; spras_zh?: string; is_kanban?: boolean; };
 type OpenPoItem = { po_number?: string; po_item?: string; part?: string; orderdate?: string; deliverydate?: string; openqty?: number; };
-type ShortageChassisItem = { status?: string; is_sea?: boolean; open_qty?: number };
-type ShortageItem = {
-  part?: string;
-  description?: string;
-  total_required_qty?: number;
-  issued_qty?: number;
-  stock_qty?: number;
-  shortage_qty?: number;
-  chassis_count?: number;
-  chassis?: Record<string, ShortageChassisItem>;
-};
 type Mode = 'sea' | 'nosea';
 
 const normalizePart = (part?: string) => (part || '').trim().replace(/[_-]?KANBAN.*$/i, '').replace(/[_-]\d+$/,'');
@@ -35,7 +24,7 @@ const isBeforeToday = (value?: string) => { const d = parseDate(value); if (!d) 
 export default function ProductionRequiredAnalysisPage() {
   const [lang, setLang] = useState<Lang>(getLang());
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<Array<SummaryItem & { effSea: number; effNoSea: number; shortageSea: number; shortageNoSea: number; openPos: OpenPoItem[]; normPart: string; openPoQtyTotal: number; chassisCount: number; chassisDetails: Array<{ chassisNo: string; status: string }> }>>([]);
+  const [rows, setRows] = useState<Array<SummaryItem & { effSea: number; effNoSea: number; shortageSea: number; shortageNoSea: number; openPos: OpenPoItem[]; normPart: string; openPoQtyTotal: number }>>([]);
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<Mode>('nosea');
   const getPartDesc = (item: SummaryItem) =>
@@ -49,17 +38,10 @@ export default function ProductionRequiredAnalysisPage() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [s, o, sh] = await Promise.all([get(ref(database, 'production_report/summary/items')), get(ref(database, 'production_report/open_po/items')), get(ref(database, 'production_report/shortages/items'))]);
-      const summary = Object.values((s.val() || {}) as Record<string, SummaryItem>).filter((it) => !it.is_kanban);
+      const [s, o] = await Promise.all([get(ref(database, 'production_report/summary/items')), get(ref(database, 'production_report/open_po/items'))]);
+      const summary = Object.values((s.val() || {}) as Record<string, SummaryItem>).filter((it) => !Boolean(it.is_kanban));
       const open = Object.values((o.val() || {}) as Record<string, OpenPoItem>);
-      const shortages = Object.values((sh.val() || {}) as Record<string, ShortageItem>);
       const byPart = open.reduce<Record<string, OpenPoItem[]>>((acc, item) => { const part = normalizePart(item.part); if (!part) return acc; (acc[part] ||= []).push(item); return acc; }, {});
-      const shortageByPart = shortages.reduce<Record<string, ShortageItem>>((acc, item) => {
-        const part = normalizePart(item.part);
-        if (!part) return acc;
-        acc[part] = item;
-        return acc;
-      }, {});
 
       const grouped: Record<string, SummaryItem> = {};
       summary.forEach((item) => {
@@ -79,23 +61,7 @@ export default function ProductionRequiredAnalysisPage() {
         const shortageNoSea = stock - effNoSea;
         const part = normalizePart(item.part);
         const openPos = byPart[part] || [];
-        const shortageInfo = shortageByPart[part];
-        const chassisDetails = Object.entries(shortageInfo?.chassis || {}).map(([chassisNo, chassis]) => ({
-          chassisNo,
-          status: chassis?.status || '-',
-        }));
-        return {
-          ...item,
-          effSea,
-          effNoSea,
-          shortageSea,
-          shortageNoSea,
-          normPart: part,
-          openPos,
-          openPoQtyTotal: openPos.reduce((s1, po) => s1 + Number(po.openqty || 0), 0),
-          chassisCount: Number(shortageInfo?.chassis_count || 0),
-          chassisDetails,
-        };
+        return { ...item, effSea, effNoSea, shortageSea, shortageNoSea, normPart: part, openPos, openPoQtyTotal: openPos.reduce((s1, po) => s1 + Number(po.openqty || 0), 0) };
       }));
       setLoading(false);
     })();
@@ -123,6 +89,6 @@ export default function ProductionRequiredAnalysisPage() {
     <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}><TabsList><TabsTrigger value="sea">{lang === 'zh' ? '房车门店 + 海运需求零件' : 'Parts for caravan store and sea'}</TabsTrigger><TabsTrigger value="nosea">{lang === 'zh' ? '房车门店需求零件' : 'Parts for caravan store'}</TabsTrigger></TabsList></Tabs>
     <Card><CardHeader><CardTitle>{t(lang, 'search')}</CardTitle></CardHeader><CardContent><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`${t(lang, 'part')} / ${t(lang, 'description')}`} /></CardContent></Card>
 
-    <Card><CardContent className="overflow-auto pt-6"><table className="min-w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2">{lang === 'zh' ? '零件号' : 'Part'}</th><th className="p-2">{lang === 'zh' ? '照片' : 'Photo'}</th><th className="p-2">{t(lang, 'description')}</th><th className="p-2">{mode === 'sea' ? (lang === 'zh' ? '海运+仓库需求' : 'on the Sea + warehouse requirement') : (lang === 'zh' ? '仓库需求' : 'warehouse requirement')}</th><th className="p-2">{lang === 'zh' ? '生产已领用' : 'Production Issued'}</th><th className="p-2">{lang === 'zh' ? '仍需数量' : 'Still Required'}</th><th className="p-2">{lang === 'zh' ? '生产库存' : 'Production Inventory'}</th><th className="p-2">{lang === 'zh' ? '状态' : 'Status'}</th><th className="p-2">{lang === 'zh' ? '车架号' : 'Chassis'}</th><th className="p-2">{lang === 'zh' ? 'OpenPO（PO号/延误数量）' : 'OpenPO（PO number/ Qty in delay)'}</th></tr></thead><tbody>{filtered.map((r) => { const shortage = mode === 'sea' ? r.shortageSea : r.shortageNoSea; return <tr key={r.normPart} className="border-b"><td className="p-2 font-medium">{r.part}</td><td className="p-2"><Dialog><DialogTrigger asChild><button className="h-12 w-12 overflow-hidden rounded border"><ImageWithFallback src={FirebaseService.getPartImageUrl(r.part || '')} fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)} alt={r.part || 'part'} className="h-full w-full object-contain" /></button></DialogTrigger><DialogContent className="max-w-xl"><div className="h-[60vh] overflow-hidden rounded"><ImageWithFallback src={FirebaseService.getPartImageUrl(r.part || '')} fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)} alt={r.part || 'part'} className="h-full w-full object-contain" /></div></DialogContent></Dialog></td><td className="p-2">{r.description || '-'}</td><td className="p-2">{mode === 'sea' ? Number(r.sea_required_qty || 0) : Number(r.nosea_required_qty || 0)}</td><td className="p-2">{Number(r.issued_qty || 0)}</td><td className="p-2">{mode === 'sea' ? r.effSea : r.effNoSea}</td><td className="p-2">{Number(r.stock_qty || 0)}</td><td className="p-2">{shortage < 0 ? <div className="inline-flex items-center gap-2 rounded-md bg-red-50 px-2 py-1 text-red-700"><AlertTriangle className="h-4 w-4" /><span>{mode === 'sea' ? (lang === 'zh' ? '潜在短缺' : 'Potential Shortage') : (lang === 'zh' ? '关键短缺' : 'Critical Shortage')}</span><span className="font-semibold">{shortage}</span></div> : <div className="inline-flex items-center gap-2 rounded-md bg-emerald-50 px-2 py-1 text-emerald-700"><TrendingDown className="h-4 w-4" /><span>{lang === 'zh' ? '健康' : 'Healthy'}</span><span className="font-semibold">+{shortage}</span></div>}</td><td className="p-2">{r.chassisCount === 0 ? '-' : <Dialog><DialogTrigger asChild><Button variant="outline" size="sm">chassis ({r.chassisCount})</Button></DialogTrigger><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>{r.part} - Chassis</DialogTitle></DialogHeader><div className="space-y-3"><div className="text-sm font-medium">{lang === 'zh' ? `受影响车架数量: ${r.chassisCount}` : `Affected chassis count: ${r.chassisCount}`}</div><div className="max-h-[60vh] overflow-auto rounded border"><table className="min-w-full text-sm"><thead><tr className="bg-gray-50"><th className="p-2 text-left">Chassis No.</th><th className="p-2 text-left">{lang === 'zh' ? '状态' : 'Status'}</th></tr></thead><tbody>{r.chassisDetails.map((item) => <tr key={item.chassisNo} className="border-t"><td className="p-2">{item.chassisNo}</td><td className="p-2">{item.status}</td></tr>)}</tbody></table></div></div></DialogContent></Dialog>}</td><td className="p-2">{r.openPos.length === 0 ? '-' : <Dialog><DialogTrigger asChild><Button variant="outline" size="sm">{lang === 'zh' ? `查看详情 (${r.openPos.length} / ${r.openPoQtyTotal})` : `View details (${r.openPos.length} / ${r.openPoQtyTotal})`}</Button></DialogTrigger><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>{r.part} - {lang === 'zh' ? 'OpenPO明细' : 'OpenPO Details'}</DialogTitle></DialogHeader><div className="max-h-[70vh] overflow-auto rounded border"><table className="min-w-full text-sm"><thead><tr className="bg-gray-50"><th className="p-2 text-left">PO</th><th className="p-2 text-left">Item</th><th className="p-2 text-left">{t(lang, 'orderDate')}</th><th className="p-2 text-left">{t(lang, 'deliveryDate')}</th><th className="p-2 text-left">{lang === 'zh' ? '未交数量' : 'openqty'}</th><th className="p-2 text-left">{lang === 'zh' ? '状态' : 'Status'}</th></tr></thead><tbody>{r.openPos.map((po, i) => { const delayed = isBeforeToday(po.deliverydate); return <tr key={`${po.po_number}-${po.po_item}-${i}`} className={`border-t ${delayed ? 'bg-orange-100' : ''}`}><td className="p-2">{po.po_number || '-'}</td><td className="p-2">{po.po_item || '-'}</td><td className="p-2">{po.orderdate || '-'}</td><td className="p-2">{po.deliverydate || '-'}</td><td className="p-2">{Number(po.openqty || 0)}</td><td className="p-2">{delayed ? <span className="rounded bg-orange-200 px-2 py-0.5 text-xs font-medium text-orange-900">{lang === 'zh' ? '延误' : 'Delay'}</span> : '-'}</td></tr>; })}</tbody></table></div></DialogContent></Dialog>}</td></tr>;})}</tbody></table></CardContent></Card>
+    <Card><CardContent className="overflow-auto pt-6"><table className="min-w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2">{lang === 'zh' ? '零件号' : 'Part'}</th><th className="p-2">{lang === 'zh' ? '照片' : 'Photo'}</th><th className="p-2">{t(lang, 'description')}</th><th className="p-2">{mode === 'sea' ? (lang === 'zh' ? '海运+仓库需求' : 'on the Sea + warehouse requirement') : (lang === 'zh' ? '仓库需求' : 'warehouse requirement')}</th><th className="p-2">{lang === 'zh' ? '生产已领用' : 'Production Issued'}</th><th className="p-2">{lang === 'zh' ? '仍需数量' : 'Still Required'}</th><th className="p-2">{lang === 'zh' ? '生产库存' : 'Production Inventory'}</th><th className="p-2">{lang === 'zh' ? '状态' : 'Status'}</th><th className="p-2">{lang === 'zh' ? 'OpenPO（PO号/延误数量）' : 'OpenPO（PO number/ Qty in delay)'}</th></tr></thead><tbody>{filtered.map((r) => { const shortage = mode === 'sea' ? r.shortageSea : r.shortageNoSea; return <tr key={r.normPart} className="border-b"><td className="p-2 font-medium">{r.part}</td><td className="p-2"><Dialog><DialogTrigger asChild><button className="h-12 w-12 overflow-hidden rounded border"><ImageWithFallback src={FirebaseService.getPartImageUrl(r.part || '')} fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)} alt={r.part || 'part'} className="h-full w-full object-contain" /></button></DialogTrigger><DialogContent className="max-w-xl"><div className="h-[60vh] overflow-hidden rounded"><ImageWithFallback src={FirebaseService.getPartImageUrl(r.part || '')} fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)} alt={r.part || 'part'} className="h-full w-full object-contain" /></div></DialogContent></Dialog></td><td className="p-2">{r.description || '-'}</td><td className="p-2">{mode === 'sea' ? Number(r.sea_required_qty || 0) : Number(r.nosea_required_qty || 0)}</td><td className="p-2">{Number(r.issued_qty || 0)}</td><td className="p-2">{mode === 'sea' ? r.effSea : r.effNoSea}</td><td className="p-2">{Number(r.stock_qty || 0)}</td><td className="p-2">{shortage < 0 ? <div className="inline-flex items-center gap-2 rounded-md bg-red-50 px-2 py-1 text-red-700"><AlertTriangle className="h-4 w-4" /><span>{mode === 'sea' ? (lang === 'zh' ? '潜在短缺' : 'Potential Shortage') : (lang === 'zh' ? '关键短缺' : 'Critical Shortage')}</span><span className="font-semibold">{shortage}</span></div> : <div className="inline-flex items-center gap-2 rounded-md bg-emerald-50 px-2 py-1 text-emerald-700"><TrendingDown className="h-4 w-4" /><span>{lang === 'zh' ? '健康' : 'Healthy'}</span><span className="font-semibold">+{shortage}</span></div>}</td><td className="p-2">{r.openPos.length === 0 ? '-' : <Dialog><DialogTrigger asChild><Button variant="outline" size="sm">{lang === 'zh' ? `查看详情 (${r.openPos.length} / ${r.openPoQtyTotal})` : `View details (${r.openPos.length} / ${r.openPoQtyTotal})`}</Button></DialogTrigger><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>{r.part} - {lang === 'zh' ? 'OpenPO明细' : 'OpenPO Details'}</DialogTitle></DialogHeader><div className="max-h-[70vh] overflow-auto rounded border"><table className="min-w-full text-sm"><thead><tr className="bg-gray-50"><th className="p-2 text-left">PO</th><th className="p-2 text-left">Item</th><th className="p-2 text-left">{t(lang, 'orderDate')}</th><th className="p-2 text-left">{t(lang, 'deliveryDate')}</th><th className="p-2 text-left">{lang === 'zh' ? '未交数量' : 'openqty'}</th><th className="p-2 text-left">{lang === 'zh' ? '状态' : 'Status'}</th></tr></thead><tbody>{r.openPos.map((po, i) => { const delayed = isBeforeToday(po.deliverydate); return <tr key={`${po.po_number}-${po.po_item}-${i}`} className={`border-t ${delayed ? 'bg-orange-100' : ''}`}><td className="p-2">{po.po_number || '-'}</td><td className="p-2">{po.po_item || '-'}</td><td className="p-2">{po.orderdate || '-'}</td><td className="p-2">{po.deliverydate || '-'}</td><td className="p-2">{Number(po.openqty || 0)}</td><td className="p-2">{delayed ? <span className="rounded bg-orange-200 px-2 py-0.5 text-xs font-medium text-orange-900">{lang === 'zh' ? '延误' : 'Delay'}</span> : '-'}</td></tr>; })}</tbody></table></div></DialogContent></Dialog>}</td></tr>;})}</tbody></table></CardContent></Card>
   </div>;
 }
