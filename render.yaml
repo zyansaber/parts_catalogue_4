@@ -9,18 +9,6 @@ services:
         value: "20"
       - key: PNPM_VERSION
         value: "8.15.6"
-      - key: VITE_CF_PUBLIC_BASE
-        sync: false
-      - key: VITE_R2_PUBLIC_BASE
-        sync: false
-      - key: VITE_R2_ENDPOINT
-        sync: false
-      - key: VITE_R2_BUCKET
-        sync: false
-      - key: VITE_R2_ACCESS_KEY
-        sync: false
-      - key: VITE_R2_SECRET_KEY
-        sync: false
     routes:
       - type: rewrite
         source: /*
