@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search, Eye, Package, ChevronLeft, ChevronRight,
   ChevronsLeft, ChevronsRight, SlidersHorizontal, Tag,
@@ -33,12 +33,6 @@ export default function PartsCatalogueStandalonePage() {
   const [totalPages, setTotalPages] = useState(1);
   const lang: Lang = 'en';
   const itemsPerPage = 50;
-
-  const isEmbedded = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return window.self !== window.top;
-  }, []);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
@@ -96,42 +90,6 @@ export default function PartsCatalogueStandalonePage() {
     return filtered;
   }, [allParts, selectedSupplier, sortBy, showInStockOnly]);
 
-
-
-  useEffect(() => {
-    if (!isEmbedded || typeof window === 'undefined') return;
-
-    const postHeight = () => {
-      const containerHeight = containerRef.current?.scrollHeight ?? 0;
-      const docHeight = document.documentElement?.scrollHeight ?? 0;
-      const height = Math.max(containerHeight, docHeight);
-      window.parent.postMessage(
-        {
-          source: 'parts-catalogue-standalone',
-          type: 'catalogue:height',
-          height,
-        },
-        '*'
-      );
-    };
-
-    postHeight();
-    const resizeObserver = typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(() => postHeight())
-      : null;
-
-    if (resizeObserver && containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
-
-    window.addEventListener('resize', postHeight);
-    return () => {
-      window.removeEventListener('resize', postHeight);
-      resizeObserver?.disconnect();
-    };
-  }, [isEmbedded, displayedParts, currentPage, totalPages, isSearching, loading]);
-
-
   useEffect(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
@@ -149,10 +107,9 @@ export default function PartsCatalogueStandalonePage() {
   }
 
   return (
-    <div ref={containerRef} className={`space-y-6 ${isEmbedded ? 'p-3 md:p-4' : ''}`}>
+    <div className="space-y-6">
 
       {/* ── Header ──────────────────────────────────────────── */}
-      {!isEmbedded && (
       <div className="flex items-start justify-between border-b border-slate-200 pb-5">
         <div className="flex items-center gap-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 shadow-md">
@@ -174,7 +131,6 @@ export default function PartsCatalogueStandalonePage() {
           )}
         </div>
       </div>
-      )}
 
       {/* ── Filters ─────────────────────────────────────────── */}
       <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
