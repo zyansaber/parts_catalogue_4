@@ -7,7 +7,136 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const DEFAULT_R2_PUBLIC_BASE = 'https://pub-7e56631fd9fb4c6e9686364d876155f8.r2.dev';
+
 export class FirebaseService {
+  private static getR2Config() {
+    const endpoint = (import.meta.env.VITE_R2_ENDPOINT || '').trim().replace(/\/+$/, '');
+    const accessKeyId = (import.meta.env.VITE_R2_ACCESS_KEY || '').trim();
+    const secretAccessKey = (import.meta.env.VITE_R2_SECRET_KEY || '').trim();
+    const bucket = (import.meta.env.VITE_R2_BUCKET || 'parts').trim();
+    return { endpoint, accessKeyId, secretAccessKey, bucket };
+  }
+
+  private static async hmacSha256(key: ArrayBuffer | Uint8Array | string, message: string): Promise<ArrayBuffer> {
+    const enc = new TextEncoder();
+    const keyData = typeof key === 'string'
+      ? enc.encode(key)
+      : key instanceof Uint8Array
+        ? new Uint8Array(key)
+        : new Uint8Array(key);
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    return crypto.subtle.sign('HMAC', cryptoKey, enc.encode(message));
+  }
+
+  private static async sha256Hex(payload: string): Promise<string> {
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+    return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  private static toAmzDate(date: Date) {
+    const iso = date.toISOString().replace(/[:-]|\.\d{3}/g, '');
+    return { amzDate: iso, dateStamp: iso.slice(0, 8) };
+  }
+
+  private static async uploadToCloudflareR2(file: Blob, objectKey: string, contentType: string): Promise<string> {
+    const { endpoint, accessKeyId, secretAccessKey, bucket } = this.getR2Config();
+    if (!endpoint || !accessKeyId || !secretAccessKey) {
+      throw new Error('Missing R2 config. Set VITE_R2_ENDPOINT, VITE_R2_ACCESS_KEY, VITE_R2_SECRET_KEY');
+    }
+
+    const host = new URL(endpoint).host;
+    const normalizedObjectKey = this.toR2ObjectKey(objectKey);
+    const canonicalUri = `/${bucket}/${normalizedObjectKey}`;
+    const now = new Date();
+    const { amzDate, dateStamp } = this.toAmzDate(now);
+    const payloadHash = 'UNSIGNED-PAYLOAD';
+
+    const canonicalHeaders = `content-type:${contentType}\nhost:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+    const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
+    const canonicalRequest = `PUT\n${canonicalUri}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+    const canonicalRequestHash = await this.sha256Hex(canonicalRequest);
+
+    const scope = `${dateStamp}/auto/s3/aws4_request`;
+    const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${canonicalRequestHash}`;
+
+    const kDate = await this.hmacSha256(`AWS4${secretAccessKey}`, dateStamp);
+    const kRegion = await this.hmacSha256(kDate, 'auto');
+    const kService = await this.hmacSha256(kRegion, 's3');
+    const kSigning = await this.hmacSha256(kService, 'aws4_request');
+    const signatureBuffer = await this.hmacSha256(kSigning, stringToSign);
+    const signature = Array.from(new Uint8Array(signatureBuffer)).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+    const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    const putUrl = `${endpoint}${canonicalUri}`;
+    const response = await fetch(putUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': contentType,
+        'x-amz-date': amzDate,
+        'x-amz-content-sha256': payloadHash,
+        Authorization: authorization,
+      },
+      body: file,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`R2 upload failed (${response.status}): ${text}`);
+    }
+
+    return this.buildCloudflareImageUrl(normalizedObjectKey);
+  }
+
+  private static buildCloudflareImageUrl(filename: string): string {
+    const publicBase = (
+      import.meta.env.VITE_CF_PUBLIC_BASE ||
+      import.meta.env.VITE_R2_PUBLIC_BASE ||
+      DEFAULT_R2_PUBLIC_BASE
+    ).trim();
+    if (!publicBase) return '';
+    const normalizedBase = publicBase.replace(/\/+$/, '');
+    const sanitizedFilename = filename.replace(/^\/+/, '');
+    const normalizedKey = sanitizedFilename.startsWith('partsfolder/')
+      ? sanitizedFilename
+      : `partsfolder/${sanitizedFilename}`;
+    const encodedKey = normalizedKey
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+    return `${normalizedBase}/${encodedKey}`;
+  }
+
+  private static buildCloudflareRootUrl(filename: string): string {
+    const publicBase = (
+      import.meta.env.VITE_CF_PUBLIC_BASE ||
+      import.meta.env.VITE_R2_PUBLIC_BASE ||
+      DEFAULT_R2_PUBLIC_BASE
+    ).trim();
+    if (!publicBase) return '';
+    const normalizedBase = publicBase.replace(/\/+$/, '');
+    const sanitizedFilename = filename.replace(/^\/+/, '');
+    const encodedKey = sanitizedFilename
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+    return `${normalizedBase}/${encodedKey}`;
+  }
+
+  private static toR2ObjectKey(filename: string): string {
+    const sanitizedFilename = filename.replace(/^\/+/, '');
+    return sanitizedFilename.startsWith('partsfolder/')
+      ? sanitizedFilename
+      : `partsfolder/${sanitizedFilename}`;
+  }
+
   // Parts operations with pagination and search
   static async getAllParts(): Promise<Record<string, Part>> {
     try {
@@ -197,7 +326,10 @@ export class FirebaseService {
       
       if (!data) return [];
       
-      return Object.values(data).reverse() as PartApplication[];
+      return (Object.values(data).reverse() as PartApplication[]).map((app) => ({
+        ...app,
+        image_url: this.normalizeImageUrl(app.image_url || ''),
+      }));
     } catch (error) {
       console.error('Error fetching part applications:', error);
       return [];
@@ -208,7 +340,12 @@ export class FirebaseService {
     try {
       const appRef = ref(database, 'PartApplications/' + ticketId);
       const snapshot = await get(appRef);
-      return snapshot.val();
+      const app = snapshot.val();
+      if (!app) return null;
+      return {
+        ...app,
+        image_url: this.normalizeImageUrl(app.image_url || ''),
+      };
     } catch (error) {
       console.error('Error fetching part application:', error);
       return null;
@@ -217,10 +354,7 @@ export class FirebaseService {
 
   static async uploadApplicationImage(ticketId: string, file: File): Promise<string> {
     try {
-      const imageRef = storageRef(storage, ticketId + '.png');
-      const snapshot = await uploadBytes(imageRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      return downloadURL;
+      return await this.uploadToCloudflareR2(file, `${ticketId}.png`, file.type || 'image/png');
     } catch (error) {
       console.error('Error uploading application image:', error);
       throw error;
@@ -228,25 +362,41 @@ export class FirebaseService {
   }
 
   static getPartImageUrl(material: string): string {
-    const baseUrl = 'https://firebasestorage.googleapis.com/v0/b/partssr.firebasestorage.app/o/';
-    return baseUrl + encodeURIComponent(material) + '.png?alt=media';
+    return this.buildCloudflareImageUrl(`${material}.png`);
   }
 
   static getPartImageUrlWithFallback(material: string): string[] {
-    const baseUrl = 'https://firebasestorage.googleapis.com/v0/b/partssr.firebasestorage.app/o/';
-    return [
-      baseUrl + encodeURIComponent(material) + '.png?alt=media',
-      baseUrl + encodeURIComponent(material) + '.jpg?alt=media',
-      baseUrl + encodeURIComponent(material) + '.webp?alt=media',
-    ];
+    const candidates = [
+      this.buildCloudflareImageUrl(`${material}.png`),
+      this.buildCloudflareImageUrl(`${material}.jpg`),
+      this.buildCloudflareImageUrl(`${material}.webp`),
+      // 兼容历史文件在bucket根目录的情况
+      this.buildCloudflareRootUrl(`${material}.png`),
+      this.buildCloudflareRootUrl(`${material}.jpg`),
+      this.buildCloudflareRootUrl(`${material}.webp`),
+    ].filter(Boolean);
+
+    return Array.from(new Set(candidates));
+  }
+
+  static normalizeImageUrl(url: string): string {
+    if (!url) return '';
+    if (!url.includes('firebasestorage.googleapis.com')) return url;
+
+    const match = url.match(/\/o\/([^?]+)/);
+    const encodedPath = match?.[1];
+    if (!encodedPath) return url;
+
+    const decodedPath = decodeURIComponent(encodedPath);
+    const filename = decodedPath.split('/').pop();
+    if (!filename) return url;
+
+    return this.buildCloudflareImageUrl(filename) || url;
   }
 
   static async uploadPartImage(partCode: string, file: File): Promise<string> {
     try {
-      const imageRef = storageRef(storage, partCode + '.png');
-      const snapshot = await uploadBytes(imageRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      return downloadURL;
+      return await this.uploadToCloudflareR2(file, `${partCode}.png`, file.type || 'image/png');
     } catch (error) {
       console.error('Error uploading part image:', error);
       throw error;
@@ -295,7 +445,11 @@ export class FirebaseService {
       const snapshot = await get(ref(database, 'partApplications'));
       if (snapshot.exists()) {
         const data = snapshot.val();
-        return Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        return Object.keys(data).map(key => ({
+          id: key,
+          ...data[key],
+          imageUrl: this.normalizeImageUrl(data[key]?.imageUrl || ''),
+        }));
       }
       return [];
     } catch (error) {
@@ -346,10 +500,7 @@ export class FirebaseService {
 
   static async uploadPartApplicationImage(file: File, applicationId: string): Promise<string> {
     try {
-      const imageRef = storageRef(storage, applicationId + '.png');
-      const snapshot = await uploadBytes(imageRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      return downloadURL;
+      return await this.uploadToCloudflareR2(file, `${applicationId}.png`, file.type || 'image/png');
     } catch (error) {
       console.error('Error uploading application image:', error);
       throw error;
@@ -394,9 +545,7 @@ export class FirebaseService {
       const imageBlob = await response.blob();
       
       // 上传到新的part code文件名
-      const newImageRef = storageRef(storage, `${partCode}.png`);
-      const uploadSnapshot = await uploadBytes(newImageRef, imageBlob);
-      const newImageUrl = await getDownloadURL(uploadSnapshot.ref);
+      const newImageUrl = await this.uploadToCloudflareR2(imageBlob, `${partCode}.png`, 'image/png');
       
       console.log(`Successfully copied image to ${partCode}.png`);
       return newImageUrl;
@@ -448,9 +597,7 @@ export class FirebaseService {
             
             try {
               // 上传新图片
-              const newImageRef = storageRef(storage, `${partCode}.png`);
-              const uploadSnapshot = await uploadBytes(newImageRef, blob);
-              const newImageUrl = await getDownloadURL(uploadSnapshot.ref);
+              const newImageUrl = await FirebaseService.uploadToCloudflareR2(blob, `${partCode}.png`, 'image/png');
               
               console.log(`Successfully copied image via canvas to ${partCode}.png`);
               resolve(newImageUrl);
@@ -511,10 +658,7 @@ export class FirebaseService {
   // Upload part image with part code as filename (for Take Photo page)
   static async uploadPartImageWithCode(file: File, partCode: string): Promise<string> {
     try {
-      const imageRef = storageRef(storage, `${partCode}.png`);
-      const snapshot = await uploadBytes(imageRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      return downloadURL;
+      return await this.uploadToCloudflareR2(file, `${partCode}.png`, file.type || 'image/png');
     } catch (error) {
       console.error('Error uploading part image:', error);
       throw error;
