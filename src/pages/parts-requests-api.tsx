@@ -13,6 +13,7 @@ type FirestoreField = {
   timestampValue?: string;
 };
 type FirestoreDoc = { name?: string; fields?: Record<string, FirestoreField> };
+const DEFAULT_R2_PUBLIC_BASE = 'https://pub-7e56631fd9fb4c6e9686364d876155f8.r2.dev';
 
 const getValue = (f?: FirestoreField) =>
   f?.stringValue ??
@@ -22,6 +23,20 @@ const getValue = (f?: FirestoreField) =>
   (typeof f?.booleanValue === 'boolean' ? String(f.booleanValue) : '');
 
 const DISPLAY_COLUMNS = ['line', 'reason', 'chassisNumber', 'material', 'description', 'actionTaken', 'photo'] as const;
+
+const normalizeImageUrl = (url: string) => {
+  if (!url || !url.includes('firebasestorage.googleapis.com')) return url;
+  const match = url.match(/\/o\/([^?]+)/);
+  const encodedPath = match?.[1];
+  if (!encodedPath) return url;
+
+  const decodedPath = decodeURIComponent(encodedPath);
+  const filename = decodedPath.split('/').pop();
+  if (!filename) return url;
+
+  const base = (import.meta.env.VITE_CF_PUBLIC_BASE || import.meta.env.VITE_R2_PUBLIC_BASE || DEFAULT_R2_PUBLIC_BASE).trim().replace(/\/+$/, '');
+  return base ? `${base}/partsfolder/${filename}` : url;
+};
 
 export default function PartsRequestsApiPage() {
   const [lang, setLang] = useState<Lang>(getLang());
@@ -58,7 +73,7 @@ export default function PartsRequestsApiPage() {
             row[k] = String(getValue(v));
           });
 
-          row.photo = row.imageUrl || '';
+          row.photo = normalizeImageUrl(row.imageUrl || '');
           return row;
         })
         .filter((row) => row.storeDelivered !== 'true');
