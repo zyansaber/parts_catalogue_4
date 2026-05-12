@@ -1,6 +1,4 @@
 import jsPDF from 'jspdf';
-
-const DEFAULT_R2_PUBLIC_BASE = 'https://pub-7e56631fd9fb4c6e9686364d876155f8.r2.dev';
 import html2canvas from 'html2canvas';
 import { PartApplication } from '@/types';
 import { formatDate, formatCurrency } from '@/lib/utils';
@@ -162,14 +160,13 @@ export class PDFService {
       imageUrls.push(application.image_url);
     }
     
-    // Also try Cloudflare public URLs with ticket ID
-    const publicBase = (import.meta.env.VITE_CF_PUBLIC_BASE || import.meta.env.VITE_R2_PUBLIC_BASE || DEFAULT_R2_PUBLIC_BASE).trim().replace(/\/+$/, '');
-    if (publicBase) {
-      imageUrls.push(`${publicBase}/partsfolder/${application.ticket_id}.jpg`);
-      imageUrls.push(`${publicBase}/partsfolder/${application.ticket_id}.png`);
-      imageUrls.push(`${publicBase}/${application.ticket_id}.jpg`);
-      imageUrls.push(`${publicBase}/${application.ticket_id}.png`);
-    }
+    // Also try Firebase storage URL with ticket ID
+    const firebaseImageUrl = `https://firebasestorage.googleapis.com/v0/b/parts-catalogue-mgx.appspot.com/o/part-applications%2F${application.ticket_id}.jpg?alt=media`;
+    imageUrls.push(firebaseImageUrl);
+    
+    // Try alternative formats
+    const firebaseImageUrlPng = `https://firebasestorage.googleapis.com/v0/b/parts-catalogue-mgx.appspot.com/o/part-applications%2F${application.ticket_id}.png?alt=media`;
+    imageUrls.push(firebaseImageUrlPng);
 
     for (const imageUrl of imageUrls) {
       try {

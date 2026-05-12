@@ -16,8 +16,6 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recha
 import { Switch } from '@/components/ui/switch';
 import { getLang, resolvePartDescription, type Lang } from '@/lib/i18n';
 
-const DEFAULT_R2_PUBLIC_BASE = 'https://pub-7e56631fd9fb4c6e9686364d876155f8.r2.dev';
-
 export default function AdminPage() {
   const [parts, setParts] = useState<Record<string, Part>>({});
   const [filteredParts, setFilteredParts] = useState<[string, Part][]>([]);
@@ -39,11 +37,6 @@ export default function AdminPage() {
   const [obsoletedDate, setObsoletedDate] = useState('');
   const [alternativeParts, setAlternativeParts] = useState('');
   const [showInCatalogue, setShowInCatalogue] = useState(true);
-  const [debugPartCode, setDebugPartCode] = useState('');
-  const [debugChecking, setDebugChecking] = useState(false);
-  const [debugResults, setDebugResults] = useState<Array<{ url: string; ok: boolean }>>([]);
-  const detectedCfBase = (import.meta.env.VITE_CF_PUBLIC_BASE || '').trim();
-  const detectedR2Base = (import.meta.env.VITE_R2_PUBLIC_BASE || DEFAULT_R2_PUBLIC_BASE).trim();
 
   // Stats for dashboard
   const [stats, setStats] = useState({
@@ -203,51 +196,6 @@ export default function AdminPage() {
 
   const COLORS = ['#10b981', '#ef4444'];
 
-  const checkImageExists = (url: string): Promise<boolean> => {
-    return new Promise((resolve) => {
-      const img = new window.Image();
-      img.onload = () => resolve(true);
-      img.onerror = () => resolve(false);
-      img.src = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
-    });
-  };
-
-  const handleDebugCheck = async () => {
-    const code = debugPartCode.trim();
-    if (!code) {
-      showMessage('error', 'Please enter part code to check image paths');
-      return;
-    }
-
-    const publicBase = (detectedCfBase || detectedR2Base || '').trim().replace(/\/+$/, '');
-    if (!publicBase) {
-      showMessage('error', 'Missing public base env. Fallback is applied to built-in R2 public base.');
-      return;
-    }
-
-    const candidates = [
-      `${publicBase}/partsfolder/${encodeURIComponent(code)}.png`,
-      `${publicBase}/partsfolder/${encodeURIComponent(code)}.jpg`,
-      `${publicBase}/partsfolder/${encodeURIComponent(code)}.webp`,
-      `${publicBase}/${encodeURIComponent(code)}.png`,
-      `${publicBase}/${encodeURIComponent(code)}.jpg`,
-      `${publicBase}/${encodeURIComponent(code)}.webp`,
-    ];
-
-    setDebugChecking(true);
-    try {
-      const results = await Promise.all(candidates.map(async (url) => ({ url, ok: await checkImageExists(url) })));
-      setDebugResults(results);
-      if (results.some((x) => x.ok)) {
-        showMessage('success', `Found image for part code ${code}`);
-      } else {
-        showMessage('error', `No image found for ${code}. Check if filename matches part code.`);
-      }
-    } finally {
-      setDebugChecking(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-96">
@@ -274,40 +222,6 @@ export default function AdminPage() {
       )}
 
       {/* Dashboard Stats */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Image Path Debugger</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Input
-              value={debugPartCode}
-              onChange={(e) => setDebugPartCode(e.target.value)}
-              placeholder="Enter part code, e.g. 282400102"
-            />
-            <Button onClick={handleDebugCheck} disabled={debugChecking}>
-              {debugChecking ? 'Checking...' : 'Check URLs'}
-            </Button>
-          </div>
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p>Detected VITE_CF_PUBLIC_BASE: {detectedCfBase || '(empty)'}</p>
-            <p>Detected VITE_R2_PUBLIC_BASE: {detectedR2Base || '(empty)'}</p>
-          </div>
-          {debugResults.length > 0 && (
-            <div className="space-y-2 text-sm">
-              {debugResults.map((item) => (
-                <div key={item.url} className="flex items-center justify-between gap-2 border rounded p-2">
-                  <a href={item.url} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all">
-                    {item.url}
-                  </a>
-                  <Badge variant={item.ok ? 'default' : 'secondary'}>{item.ok ? 'FOUND' : '404/FAIL'}</Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
           <CardHeader className="pb-3">
