@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Eye, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import {
+  Search, Eye, Package, ChevronLeft, ChevronRight,
+  ChevronsLeft, ChevronsRight, SlidersHorizontal, Tag,
+  ArrowUpDown, CheckSquare, AlertTriangle, CalendarClock,
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -32,7 +36,6 @@ export default function PartsCatalogueStandalonePage() {
 
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
-  // Load initial data and handle search
   useEffect(() => {
     const load = async () => {
       if (debouncedSearchTerm) {
@@ -40,12 +43,10 @@ export default function PartsCatalogueStandalonePage() {
       } else {
         setLoading(true);
       }
-      
       try {
-        // Always search the entire database - use getAllParts for complete data
-        const partsData = debouncedSearchTerm 
-          ? await FirebaseService.searchParts(debouncedSearchTerm, 10000) // Increase limit for search
-          : await FirebaseService.getAllParts(); // Get all parts when no search term
+        const partsData = debouncedSearchTerm
+          ? await FirebaseService.searchParts(debouncedSearchTerm, 10000)
+          : await FirebaseService.getAllParts();
         setAllParts(partsData);
       } catch (error) {
         console.error('Error loading parts:', error);
@@ -57,7 +58,6 @@ export default function PartsCatalogueStandalonePage() {
     load();
   }, [debouncedSearchTerm]);
 
-  // Reset to page 1 when search term changes
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearchTerm]);
@@ -65,357 +65,423 @@ export default function PartsCatalogueStandalonePage() {
   const suppliers = useMemo(() => {
     const supplierSet = new Set<string>();
     Object.values(allParts).forEach(part => {
-      if (part.Supplier_Name) {
-        supplierSet.add(part.Supplier_Name);
-      }
+      if (part.Supplier_Name) supplierSet.add(part.Supplier_Name);
     });
     return Array.from(supplierSet).sort();
   }, [allParts]);
 
   const filteredAndSortedParts = useMemo(() => {
-    const filtered = Object.entries(allParts).filter(([material, part]) => {
-      const isHidden = part.show_in_catalogue === false;
-      if (isHidden) return false;
-      
-      // Supplier filter
+    const filtered = Object.entries(allParts).filter(([, part]) => {
+      if (part.show_in_catalogue === false) return false;
       const matchesSupplier = selectedSupplier === 'all' || part.Supplier_Name === selectedSupplier;
-      // Stock filter
       const matchesStock = !showInStockOnly || (part.Current_Stock_Qty || 0) > 0;
       return matchesSupplier && matchesStock;
     });
 
-    // Sort
     filtered.sort(([materialA, partA], [materialB, partB]) => {
       switch (sortBy) {
-        case 'price':
-          return (partA.Standard_Price || 0) - (partB.Standard_Price || 0);
-        case 'stock':
-          return (partB.Current_Stock_Qty || 0) - (partA.Current_Stock_Qty || 0);
-        case 'supplier':
-          return (partA.Supplier_Name || '').localeCompare(partB.Supplier_Name || '');
-        default:
-          return materialA.localeCompare(materialB);
+        case 'price':   return (partA.Standard_Price || 0) - (partB.Standard_Price || 0);
+        case 'stock':   return (partB.Current_Stock_Qty || 0) - (partA.Current_Stock_Qty || 0);
+        case 'supplier': return (partA.Supplier_Name || '').localeCompare(partB.Supplier_Name || '');
+        default:        return materialA.localeCompare(materialB);
       }
     });
 
     return filtered;
   }, [allParts, selectedSupplier, sortBy, showInStockOnly]);
 
-  // Handle pagination
   useEffect(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const paginatedParts = filteredAndSortedParts.slice(startIndex, endIndex);
-    setDisplayedParts(Object.fromEntries(paginatedParts));
+    setDisplayedParts(Object.fromEntries(filteredAndSortedParts.slice(startIndex, endIndex)));
     setTotalPages(Math.ceil(filteredAndSortedParts.length / itemsPerPage));
   }, [filteredAndSortedParts, currentPage]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-96">
+      <div className="flex flex-col items-center justify-center min-h-96 gap-3">
         <LoadingSpinner size="lg" />
+        <p className="text-sm text-slate-400 tracking-wider uppercase font-mono">Loading catalogue…</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Parts Catalogue</h1>
-          <p className="text-gray-600 mt-1">Browse and search automotive parts inventory</p>
+
+      {/* ── Header ──────────────────────────────────────────── */}
+      <div className="flex items-start justify-between border-b border-slate-200 pb-5">
+        <div className="flex items-center gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 shadow-md">
+            <Package className="h-6 w-6 text-amber-400" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Parts Catalogue</h1>
+            <p className="text-sm text-slate-500 mt-0.5">Browse and search caravan parts inventory</p>
+          </div>
         </div>
-        <Badge variant="secondary" className="text-sm">
-          {filteredAndSortedParts.length} parts found
-          {totalPages > 1 && ` | Page ${currentPage} of ${totalPages}`}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-mono text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
+            {filteredAndSortedParts.length.toLocaleString()} parts
+          </span>
+          {totalPages > 1 && (
+            <span className="text-xs font-mono text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
+              pg {currentPage}/{totalPages}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Search and Filters */}
-      <Card className="shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-lg">Search & Filters</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium mb-2 block">Search Parts</label>
-              <div className="relative">
-                <Search className="h-4 w-4 absolute left-3 top-3 text-gray-400" />
-                <Input
-                  placeholder="Search by part code, description, or supplier..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-                {isSearching && (
-                  <div className="absolute right-3 top-3">
-                    <LoadingSpinner size="sm" />
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">Supplier</label>
-              <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All suppliers" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Suppliers</SelectItem>
-                  {suppliers.map(supplier => (
-                    <SelectItem key={supplier} value={supplier}>{supplier}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">Sort By</label>
-              <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="material">Part Code</SelectItem>
-                  <SelectItem value="stock">Stock</SelectItem>
-                  <SelectItem value="supplier">Supplier</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="inStock"
-              checked={showInStockOnly}
-              onCheckedChange={(checked) => setShowInStockOnly(checked as boolean)}
-            />
-            <label htmlFor="inStock" className="text-sm font-medium">
-              Show only parts in stock
-            </label>
-          </div>
-        </CardContent>
-      </Card>
+      {/* ── Filters ─────────────────────────────────────────── */}
+      <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <SlidersHorizontal className="h-4 w-4 text-slate-500" />
+          <span className="text-sm font-semibold text-slate-700 tracking-wide">Search & Filters</span>
+        </div>
 
-      {/* Parts Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-        {Object.entries(displayedParts).map(([material, part]) => (
-          <Card key={material} className="hover:shadow-lg transition-shadow duration-200">
-            <CardContent className="p-3">
-              <div className="aspect-square mb-3 relative bg-gray-50 rounded-lg overflow-hidden">
-                <ImageWithFallback
-                  src={FirebaseService.getPartImageUrl(material)}
-                  fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(material).slice(1)}
-                  alt={resolvePartDescription(lang, part) || material}
-                  className="w-full h-full object-contain"
-                  fallbackClassName="w-full h-full rounded-lg flex items-center justify-center text-gray-400 text-sm"
-                />
-                
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button
-                      size="sm"
-                      className="absolute top-2 right-2 h-8 w-8 bg-white/90 hover:bg-white text-gray-700"
-                      onClick={() => setSelectedPart({ material, part })}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-3xl">
-                    <DialogHeader>
-                      <DialogTitle>Part Details - {material}</DialogTitle>
-                    </DialogHeader>
-                    {selectedPart && (
-                      <div className="space-y-6">
-                        <div className="aspect-video bg-gray-50 rounded-lg overflow-hidden">
-                          <ImageWithFallback
-                            src={FirebaseService.getPartImageUrl(selectedPart.material)}
-                            fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(selectedPart.material).slice(1)}
-                            alt={resolvePartDescription(lang, selectedPart.part) || selectedPart.material}
-                            className="w-full h-full object-contain"
-                            fallbackClassName="w-full h-full rounded-lg flex items-center justify-center text-gray-400"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-6">
-                          <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+          {/* Search */}
+          <div className="md:col-span-5 relative">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Input
+              placeholder="Part code, description or supplier…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 pr-9 h-9 bg-white border-slate-300 text-sm placeholder:text-slate-400 focus-visible:ring-slate-900"
+            />
+            {isSearching && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <LoadingSpinner size="sm" />
+              </div>
+            )}
+          </div>
+
+          {/* Supplier */}
+          <div className="md:col-span-4">
+            <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
+              <SelectTrigger className="h-9 bg-white border-slate-300 text-sm focus:ring-slate-900">
+                <Tag className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+                <SelectValue placeholder="All suppliers" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Suppliers</SelectItem>
+                {suppliers.map(s => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Sort */}
+          <div className="md:col-span-3">
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="h-9 bg-white border-slate-300 text-sm focus:ring-slate-900">
+                <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="material">Part Code</SelectItem>
+                <SelectItem value="stock">Stock (High → Low)</SelectItem>
+                <SelectItem value="supplier">Supplier</SelectItem>
+                <SelectItem value="price">Price (Low → High)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* In-stock toggle */}
+        <div className="flex items-center gap-2.5 mt-3 pt-3 border-t border-slate-200">
+          <Checkbox
+            id="inStock"
+            checked={showInStockOnly}
+            onCheckedChange={(checked) => setShowInStockOnly(checked as boolean)}
+            className="border-slate-300 data-[state=checked]:bg-slate-900 data-[state=checked]:border-slate-900"
+          />
+          <label htmlFor="inStock" className="text-sm text-slate-600 cursor-pointer select-none">
+            Show only parts in stock
+          </label>
+        </div>
+      </div>
+
+      {/* ── Grid ────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+        {Object.entries(displayedParts).map(([material, part]) => {
+          const inStock = (part.Current_Stock_Qty || 0) > 0;
+          const isObsolete = !!part.obsoleted_date;
+
+          return (
+            <Card
+              key={material}
+              className={`
+                group relative overflow-hidden border transition-all duration-200
+                hover:shadow-md hover:-translate-y-0.5
+                ${isObsolete ? 'border-red-200 bg-red-50/30' : 'border-slate-200 bg-white'}
+              `}
+            >
+              <CardContent className="p-0">
+
+                {/* Image area */}
+                <div className="relative aspect-square bg-slate-50 overflow-hidden border-b border-slate-100">
+                  <ImageWithFallback
+                    src={FirebaseService.getPartImageUrl(material)}
+                    fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(material).slice(1)}
+                    alt={resolvePartDescription(lang, part) || material}
+                    className="w-full h-full object-contain p-2 transition-transform duration-300 group-hover:scale-105"
+                    fallbackClassName="w-full h-full flex items-center justify-center"
+                  />
+
+                  {/* Stock badge — top left */}
+                  <div className="absolute top-2 left-2">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono tracking-wide ${
+                      inStock
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-slate-800 text-slate-200'
+                    }`}>
+                      {inStock ? `${part.Current_Stock_Qty} in stock` : 'OUT'}
+                    </span>
+                  </div>
+
+                  {/* View button — top right */}
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="absolute top-1.5 right-1.5 h-7 w-7 p-0 bg-white/80 hover:bg-white border border-slate-200 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200 shadow-sm"
+                        onClick={() => setSelectedPart({ material, part })}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
+                    </DialogTrigger>
+
+                    {/* ── Detail Dialog ──────────────────── */}
+                    <DialogContent className="max-w-3xl p-0 overflow-hidden rounded-xl">
+                      <DialogHeader className="px-6 pt-5 pb-4 border-b border-slate-100 bg-slate-50">
+                        <DialogTitle className="flex items-center gap-3">
+                          <span className="font-mono text-lg font-bold text-slate-900">
+                            {selectedPart?.material}
+                          </span>
+                          {selectedPart?.part.obsoleted_date && (
+                            <Badge variant="destructive" className="text-xs">Obsolete</Badge>
+                          )}
+                          {selectedPart && (
+                            <Badge
+                              variant={selectedPart.part.Current_Stock_Qty > 0 ? 'default' : 'secondary'}
+                              className={`text-xs ml-auto ${selectedPart.part.Current_Stock_Qty > 0 ? 'bg-emerald-500 hover:bg-emerald-600' : ''}`}
+                            >
+                              {selectedPart.part.Current_Stock_Qty > 0
+                                ? `${selectedPart.part.Current_Stock_Qty} In Stock`
+                                : 'Out of Stock'}
+                            </Badge>
+                          )}
+                        </DialogTitle>
+                      </DialogHeader>
+
+                      {selectedPart && (
+                        <div className="flex gap-0">
+                          {/* Left: image */}
+                          <div className="w-64 flex-shrink-0 bg-slate-50 p-6 flex items-center justify-center border-r border-slate-100">
+                            <ImageWithFallback
+                              src={FirebaseService.getPartImageUrl(selectedPart.material)}
+                              fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(selectedPart.material).slice(1)}
+                              alt={resolvePartDescription(lang, selectedPart.part) || selectedPart.material}
+                              className="max-w-full max-h-48 object-contain"
+                              fallbackClassName="w-48 h-48 flex items-center justify-center text-slate-300"
+                            />
+                          </div>
+
+                          {/* Right: details */}
+                          <div className="flex-1 p-6 space-y-5 overflow-y-auto max-h-[70vh]">
+
+                            {/* Description */}
                             <div>
-                              <label className="text-sm font-medium text-gray-500">Part Code</label>
-                              <p className="font-mono text-lg">{selectedPart.material}</p>
+                              <p className="text-[11px] uppercase tracking-widest font-semibold text-slate-400 mb-1">Description</p>
+                              <p className="text-slate-900 font-medium leading-snug">
+                                {resolvePartDescription(lang, selectedPart.part) || '—'}
+                              </p>
                             </div>
+
+                            {/* Supplier */}
                             <div>
-                              <label className="text-sm font-medium text-gray-500">Description</label>
-                              <p className="text-gray-900">{resolvePartDescription(lang, selectedPart.part) || '—'}</p>
+                              <p className="text-[11px] uppercase tracking-widest font-semibold text-slate-400 mb-1">Supplier</p>
+                              <p className="text-slate-700">{selectedPart.part.Supplier_Name || '—'}</p>
                             </div>
-                            <div>
-                              <label className="text-sm font-medium text-gray-500">Supplier</label>
-                              <p className="text-gray-900">{selectedPart.part.Supplier_Name || '—'}</p>
+
+                            {/* Pricing */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="rounded-lg bg-blue-50 border border-blue-100 px-4 py-3">
+                                <p className="text-[10px] uppercase tracking-widest font-semibold text-blue-400 mb-1">Dealer Price</p>
+                                <p className="text-xl font-bold text-blue-700 font-mono">
+                                  {formatCurrency(selectedPart.part.Dealer_Price || 0)}
+                                </p>
+                              </div>
+                              <div className="rounded-lg bg-amber-50 border border-amber-100 px-4 py-3">
+                                <p className="text-[10px] uppercase tracking-widest font-semibold text-amber-500 mb-1">Customer Price</p>
+                                <p className="text-xl font-bold text-amber-700 font-mono">
+                                  {formatCurrency(selectedPart.part.Customer_Price || 0)}
+                                </p>
+                              </div>
                             </div>
-                            {/* Display admin-added fields */}
+
+                            {/* Notes / Year / Obsoleted */}
                             {selectedPart.part.notes && (
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Notes</label>
-                                <p className="text-gray-900">{selectedPart.part.notes}</p>
+                              <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3">
+                                <CheckSquare className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-[10px] uppercase tracking-widest font-semibold text-amber-500 mb-0.5">Notes</p>
+                                  <p className="text-sm text-amber-900">{selectedPart.part.notes}</p>
+                                </div>
                               </div>
                             )}
                             {selectedPart.part.year && (
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Year</label>
-                                <p className="text-gray-900">{selectedPart.part.year}</p>
+                              <div className="flex items-center gap-2 text-sm text-slate-600">
+                                <CalendarClock className="h-4 w-4 text-slate-400" />
+                                <span className="font-medium">Year:</span> {selectedPart.part.year}
                               </div>
                             )}
                             {selectedPart.part.obsoleted_date && (
-                              <div>
-                                <label className="text-sm font-medium text-gray-500">Obsoleted Date</label>
-                                <p className="text-red-600">{selectedPart.part.obsoleted_date}</p>
+                              <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3">
+                                <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-[10px] uppercase tracking-widest font-semibold text-red-400 mb-0.5">Obsoleted</p>
+                                  <p className="text-sm text-red-800">{selectedPart.part.obsoleted_date}</p>
+                                </div>
                               </div>
                             )}
                           </div>
-                          <div className="space-y-4">
-                            <div>
-                              <label className="text-sm font-medium text-gray-500">Dealer Price</label>
-                              <p className="text-lg font-semibold text-blue-600">{formatCurrency(selectedPart.part.Dealer_Price || 0)}</p>
-                            </div>
-                            <div>
-                              <label className="text-sm font-medium text-gray-500">Customer Price</label>
-                              <p className="text-lg font-semibold text-purple-600">{formatCurrency(selectedPart.part.Customer_Price || 0)}</p>
-                            </div>
-                            <div>
-                              <label className="text-sm font-medium text-gray-500">Inventory</label>
-                              <p className="text-xl font-semibold">{selectedPart.part.Current_Stock_Qty || 0} units</p>
-                            </div>
-                            <div>
-                              <label className="text-sm font-medium text-gray-500">Availability</label>
-                              <Badge variant={selectedPart.part.Current_Stock_Qty > 0 ? "default" : "secondary"}>
-                                {selectedPart.part.Current_Stock_Qty > 0 ? "In Stock" : "Out of Stock"}
-                              </Badge>
-                            </div>
-                          </div>
                         </div>
-                      </div>
+                      )}
+                    </DialogContent>
+                  </Dialog>
+                </div>
+
+                {/* Card body */}
+                <div className="p-3 space-y-2">
+
+                  {/* Part code */}
+                  <div className="flex items-start justify-between gap-1">
+                    <span className="font-mono text-[11px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded tracking-wide leading-tight">
+                      {material}
+                    </span>
+                    {isObsolete && (
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-400 flex-shrink-0 mt-0.5" />
                     )}
-                  </DialogContent>
-                </Dialog>
-              </div>
-              
-              <div className="space-y-2">
-                <div>
-                  <h3 className="font-mono text-xs font-bold text-blue-600 mb-1">{material}</h3>
-                  <p className="text-xs text-gray-600 line-clamp-2 min-h-[2rem]">
+                  </div>
+
+                  {/* Description */}
+                  <p className="text-[11px] text-slate-600 line-clamp-2 leading-snug min-h-[2rem]">
                     {resolvePartDescription(lang, part) || 'No description'}
                   </p>
-                </div>
-                
-                {/* Display admin-added info in catalogue cards */}
-                {part.notes && (
-                  <p className="text-xs text-amber-600 mb-1">📝 {part.notes}</p>
-                )}
-                {part.year && (
-                  <p className="text-xs text-blue-600 mb-1">📅 Year: {part.year}</p>
-                )}
-                {part.obsoleted_date && (
-                  <p className="text-xs text-red-600 mb-1">⚠️ Obsoleted: {part.obsoleted_date}</p>
-                )}
-                
-                <div className="text-xs text-gray-500 truncate mb-2">
-                  {part.Supplier_Name || 'Unknown Supplier'}
-                </div>
-                
-                <div className="border-t pt-2 space-y-1">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500">Dealer:</span>
-                    <span className="text-xs font-semibold text-blue-600">
-                      {formatCurrency(part.Dealer_Price || 0)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500">Customer:</span>
-                    <span className="text-xs font-semibold text-purple-600">
-                      {formatCurrency(part.Customer_Price || 0)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center pt-1 border-t">
-                    <span className="text-xs text-gray-500">Stock:</span>
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                      (part.Current_Stock_Qty || 0) > 0 
-                        ? 'bg-green-100 text-green-700' 
-                        : 'bg-red-100 text-red-700'
-                    }`}>
-                      {part.Current_Stock_Qty || 0}
-                    </span>
+
+                  {/* Supplier */}
+                  <p className="text-[10px] text-slate-400 truncate font-medium">
+                    {part.Supplier_Name || 'Unknown supplier'}
+                  </p>
+
+                  {/* Admin flags */}
+                  {part.notes && (
+                    <p className="text-[10px] text-amber-600 truncate">📝 {part.notes}</p>
+                  )}
+                  {part.year && (
+                    <p className="text-[10px] text-slate-500">📅 {part.year}</p>
+                  )}
+
+                  {/* Prices */}
+                  <div className="flex gap-1.5 pt-1.5 border-t border-slate-100">
+                    <div className="flex-1 bg-blue-50 rounded px-2 py-1 min-w-0">
+                      <p className="text-[9px] text-blue-400 font-semibold uppercase tracking-wide">Dealer</p>
+                      <p className="text-[11px] font-bold text-blue-700 font-mono truncate">
+                        {formatCurrency(part.Dealer_Price || 0)}
+                      </p>
+                    </div>
+                    <div className="flex-1 bg-amber-50 rounded px-2 py-1 min-w-0">
+                      <p className="text-[9px] text-amber-500 font-semibold uppercase tracking-wide">Customer</p>
+                      <p className="text-[11px] font-bold text-amber-700 font-mono truncate">
+                        {formatCurrency(part.Customer_Price || 0)}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
-      {/* Pagination */}
+      {/* ── Empty state ─────────────────────────────────────── */}
+      {Object.keys(displayedParts).length === 0 && !loading && (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <div className="h-16 w-16 rounded-2xl bg-slate-100 flex items-center justify-center">
+            <Package className="h-8 w-8 text-slate-300" />
+          </div>
+          <div className="text-center">
+            <h3 className="text-base font-semibold text-slate-700">No parts found</h3>
+            <p className="text-sm text-slate-400 mt-1">Try adjusting your search or clearing the filters</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Pagination ──────────────────────────────────────── */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center space-x-2 mt-8">
+        <div className="flex items-center justify-center gap-1 pt-2">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => setCurrentPage(1)}
             disabled={currentPage === 1}
+            className="h-8 w-8 p-0 text-slate-500 disabled:opacity-30"
           >
             <ChevronsLeft className="h-4 w-4" />
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
             disabled={currentPage === 1}
+            className="h-8 w-8 p-0 text-slate-500 disabled:opacity-30"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          
-          <div className="flex items-center space-x-1">
+
+          <div className="flex items-center gap-1 mx-1">
             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
               const page = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
               if (page > totalPages) return null;
-              
+              const isActive = currentPage === page;
               return (
-                <Button
+                <button
                   key={page}
-                  variant={currentPage === page ? "default" : "outline"}
-                  size="sm"
                   onClick={() => setCurrentPage(page)}
-                  className="w-10"
+                  className={`h-8 w-8 rounded-md text-xs font-semibold transition-all duration-150 ${
+                    isActive
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-slate-100'
+                  }`}
                 >
                   {page}
-                </Button>
+                </button>
               );
             })}
           </div>
-          
+
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
             disabled={currentPage === totalPages}
+            className="h-8 w-8 p-0 text-slate-500 disabled:opacity-30"
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => setCurrentPage(totalPages)}
             disabled={currentPage === totalPages}
+            className="h-8 w-8 p-0 text-slate-500 disabled:opacity-30"
           >
             <ChevronsRight className="h-4 w-4" />
           </Button>
-        </div>
-      )}
-
-      {Object.keys(displayedParts).length === 0 && !loading && (
-        <div className="text-center py-16">
-          <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No parts found</h3>
-          <p className="text-gray-500">Try adjusting your search criteria or filters</p>
         </div>
       )}
     </div>
