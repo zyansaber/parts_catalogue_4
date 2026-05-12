@@ -160,13 +160,14 @@ export class PDFService {
       imageUrls.push(application.image_url);
     }
     
-    // Also try Firebase storage URL with ticket ID
-    const firebaseImageUrl = `https://firebasestorage.googleapis.com/v0/b/parts-catalogue-mgx.appspot.com/o/part-applications%2F${application.ticket_id}.jpg?alt=media`;
-    imageUrls.push(firebaseImageUrl);
-    
-    // Try alternative formats
-    const firebaseImageUrlPng = `https://firebasestorage.googleapis.com/v0/b/parts-catalogue-mgx.appspot.com/o/part-applications%2F${application.ticket_id}.png?alt=media`;
-    imageUrls.push(firebaseImageUrlPng);
+    // Also try Cloudflare public URLs with ticket ID
+    const publicBase = (import.meta.env.VITE_CF_PUBLIC_BASE || import.meta.env.VITE_R2_PUBLIC_BASE || '').trim().replace(/\/+$/, '');
+    if (publicBase) {
+      imageUrls.push(`${publicBase}/partsfolder/${application.ticket_id}.jpg`);
+      imageUrls.push(`${publicBase}/partsfolder/${application.ticket_id}.png`);
+      imageUrls.push(`${publicBase}/${application.ticket_id}.jpg`);
+      imageUrls.push(`${publicBase}/${application.ticket_id}.png`);
+    }
 
     for (const imageUrl of imageUrls) {
       try {
