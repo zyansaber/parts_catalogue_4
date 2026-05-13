@@ -24,6 +24,7 @@ type OpenPoItem = {
 };
 
 type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
+type ViewTab = 'active' | 'cancelled';
 
 const PAGE_SIZE = 30;
 
@@ -45,6 +46,8 @@ export default function OpenPoVendor3060Page() {
   const [lang, setLang] = useState<Lang>(getLang());
   const [purchaserFilter, setPurchaserFilter] = useState<PurchaserFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [viewTab, setViewTab] = useState<ViewTab>('active');
+  const [bulkPoInput, setBulkPoInput] = useState('');
 
   useEffect(() => {
     const fn = () => setLang(getLang());
@@ -99,19 +102,24 @@ export default function OpenPoVendor3060Page() {
     });
   }, [vendorFiltered, purchaserFilter, mapping]);
 
-  const totalOpenQty = useMemo(() => filtered.reduce((sum, item) => sum + Number(item.openqty || 0), 0), [filtered]);
-  const openPoNumber = useMemo(() => new Set(filtered.map((x) => x.po_number).filter(Boolean)).size, [filtered]);
+  const keyOf = (row: OpenPoItem) => `${row.po_number || 'po'}_${row.part || 'part'}`;
+  const activeRows = useMemo(() => filtered.filter((row) => !cancelled[keyOf(row)]), [filtered, cancelled]);
+  const cancelledRows = useMemo(() => filtered.filter((row) => cancelled[keyOf(row)]), [filtered, cancelled]);
+  const visibleRows = viewTab === 'cancelled' ? cancelledRows : activeRows;
+
+  const totalOpenQty = useMemo(() => visibleRows.reduce((sum, item) => sum + Number(item.openqty || 0), 0), [visibleRows]);
+  const openPoNumber = useMemo(() => new Set(visibleRows.map((x) => x.po_number).filter(Boolean)).size, [visibleRows]);
   const displayNumber = (value?: number) => Number(value || 0).toLocaleString();
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const pagedRows = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
-    return filtered.slice(start, start + PAGE_SIZE);
-  }, [filtered, currentPage]);
+    return visibleRows.slice(start, start + PAGE_SIZE);
+  }, [visibleRows, currentPage]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [purchaserFilter]);
+  }, [purchaserFilter, viewTab]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -119,12 +127,32 @@ export default function OpenPoVendor3060Page() {
     }
   }, [currentPage, totalPages]);
 
-  const keyOf = (row: OpenPoItem) => `${row.po_number || 'po'}_${row.part || 'part'}`;
   const toggleCancel = async (row: OpenPoItem) => {
     const key = keyOf(row);
-    const next = !Boolean(cancelled[key]);
+    const next = !cancelled[key];
     setCancelled((prev) => ({ ...prev, [key]: next }));
     await update(ref(database, 'app_admin/cancelled_openpo'), { [key]: next });
+  };
+
+  const bulkCancelByPo = async () => {
+    const poSet = new Set(
+      bulkPoInput
+        .split(/[\s,;\n\r\t]+/)
+        .map((x) => x.trim())
+        .filter(Boolean),
+    );
+    if (!poSet.size) return;
+    const updates: Record<string, boolean> = {};
+    filtered.forEach((row) => {
+      if (poSet.has(String(row.po_number || '').trim())) {
+        updates[keyOf(row)] = true;
+      }
+    });
+    if (!Object.keys(updates).length) return;
+    setCancelled((prev) => ({ ...prev, ...updates }));
+    await update(ref(database, 'app_admin/cancelled_openpo'), updates);
+    setBulkPoInput('');
+    setViewTab('cancelled');
   };
 
   const downloadExcel = () => {
@@ -156,34 +184,62 @@ export default function OpenPoVendor3060Page() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">{t(lang, 'openPoVendor3060')}</h1>
-        <Button onClick={downloadExcel}>{lang === 'zh' ? '下载Excel' : 'Download Excel'}</Button>
+        <div className="flex items-center gap-2">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline">{lang === 'zh' ? '批量取消PO' : 'Bulk Cancel PO'}</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg space-y-3">
+              <h2 className="text-lg font-semibold">{lang === 'zh' ? '上传/粘贴PO号并取消' : 'Upload/Paste PO numbers to cancel'}</h2>
+              <textarea
+                className="min-h-56 w-full rounded border p-3 text-sm"
+                placeholder={lang === 'zh' ? '每行一个PO号，或使用逗号/空格分隔' : 'One PO per line, or comma/space separated'}
+                value={bulkPoInput}
+                onChange={(e) => setBulkPoInput(e.target.value)}
+              />
+              <Button onClick={bulkCancelByPo}>{lang === 'zh' ? '确认取消' : 'Confirm Cancel'}</Button>
+            </DialogContent>
+          </Dialog>
+          <Button onClick={downloadExcel}>{lang === 'zh' ? '下载Excel' : 'Download Excel'}</Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Button
-          className="h-14 text-base"
-          variant={purchaserFilter === 'productionLongtreeOrders' ? 'default' : 'outline'}
-          onClick={() => setPurchaserFilter('productionLongtreeOrders')}
-        >
-          {lang === 'zh' ? '生产 Longtree 订单（Karen A.）' : 'Production Longtree Orders (Karen A.)'}
+      <div className="flex items-center gap-2">
+        <Button variant={viewTab === 'active' ? 'default' : 'outline'} onClick={() => setViewTab('active')}>
+          {lang === 'zh' ? '开放订单' : 'Open Orders'}
         </Button>
-        <Button
-          className="h-14 text-base"
-          variant={purchaserFilter === 'sparePartsOrders' ? 'default' : 'outline'}
-          onClick={() => setPurchaserFilter('sparePartsOrders')}
-        >
-          {lang === 'zh' ? '备件订单（Nishi A.）' : 'Spare Parts Orders (Nishi A.)'}
+        <Button variant={viewTab === 'cancelled' ? 'default' : 'outline'} onClick={() => setViewTab('cancelled')}>
+          {lang === 'zh' ? '已取消订单' : 'Cancelled Orders'}
         </Button>
       </div>
+
+      {viewTab === 'active' && (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Button
+            className="h-14 text-base"
+            variant={purchaserFilter === 'productionLongtreeOrders' ? 'default' : 'outline'}
+            onClick={() => setPurchaserFilter('productionLongtreeOrders')}
+          >
+            {lang === 'zh' ? '生产 Longtree 订单（Karen A.）' : 'Production Longtree Orders (Karen A.)'}
+          </Button>
+          <Button
+            className="h-14 text-base"
+            variant={purchaserFilter === 'sparePartsOrders' ? 'default' : 'outline'}
+            onClick={() => setPurchaserFilter('sparePartsOrders')}
+          >
+            {lang === 'zh' ? '备件订单（Nishi A.）' : 'Spare Parts Orders (Nishi A.)'}
+          </Button>
+        </div>
+      )}
 
       <div className="flex items-center gap-3">
-        <Button variant={purchaserFilter === 'all' ? 'default' : 'outline'} onClick={() => setPurchaserFilter('all')}>
-          {lang === 'zh' ? '全部' : 'All'}
-        </Button>
+        {viewTab === 'active' && (
+          <Button variant={purchaserFilter === 'all' ? 'default' : 'outline'} onClick={() => setPurchaserFilter('all')}>
+            {lang === 'zh' ? '全部' : 'All'}
+          </Button>
+        )}
         <span className="text-sm text-gray-500">
-          {lang === 'zh'
-            ? `第 ${currentPage} / ${totalPages} 页（每页 ${PAGE_SIZE} 条）`
-            : `Page ${currentPage} of ${totalPages} (${PAGE_SIZE} rows/page)`}
+          {lang === 'zh' ? `第 ${currentPage} / ${totalPages} 页（每页 ${PAGE_SIZE} 条）` : `Page ${currentPage} of ${totalPages} (${PAGE_SIZE} rows/page)`}
         </span>
       </div>
 
