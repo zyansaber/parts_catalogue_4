@@ -26,6 +26,7 @@ type OpenPoItem = {
 };
 
 type OpenPoExtraFields = {
+  part?: string;
   chassis?: string;
   shippingMethod?: 'sea freight' | 'air freight';
   category?: '自制件' | '外购件' | '';
@@ -48,6 +49,30 @@ type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
 type ViewTab = 'active' | 'cancelled';
 
 const PAGE_SIZE = 30;
+const UPLOAD_TEMPLATE_HEADERS = [
+  'po_number',
+  'part',
+  'chassis',
+  'shippingMethod',
+  'category',
+  'estimatedShipmentDate',
+  'purchasingManager',
+  'supplier',
+  'plannedArrivalDate',
+  'actualShippedQty',
+  'remainingUnshippedQty',
+  'seaFreightChassis',
+  'location',
+  'containerNo',
+  'airWaybillNo',
+  'evaluation',
+  'shippingTrackingMixed',
+  'remarks',
+];
+const EXTRA_UPLOAD_FIELDS = new Set<keyof OpenPoExtraFields>(UPLOAD_TEMPLATE_HEADERS.filter((x) => x !== 'po_number') as Array<keyof OpenPoExtraFields>);
+const sanitizeDbKey = (value: string) => value.replace(/[.#$/[\]]/g, '_');
+const makeExtraKey = (poNumber: string, part: string) =>
+  `${sanitizeDbKey(String(poNumber || '').trim())}__${sanitizeDbKey(String(part || '').trim())}`;
 
 const formatDate = (value?: string) => {
   if (!value) return '-';
@@ -62,14 +87,16 @@ const formatDate = (value?: string) => {
 
 function ExtraFieldsPanel({
   poNumber,
+  part,
   extra,
   chassisFallback,
   updateExtraField,
 }: {
   poNumber: string;
+  part: string;
   extra: OpenPoExtraFields;
   chassisFallback: string;
-  updateExtraField: (po: string, field: keyof OpenPoExtraFields, value: string) => void;
+  updateExtraField: (po: string, part: string, field: keyof OpenPoExtraFields, value: string) => void;
 }) {
   const field = (
     label: string,
@@ -87,7 +114,7 @@ function ExtraFieldsPanel({
       className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
       placeholder={placeholder ?? '—'}
       value={(extra[key] as string) || ''}
-      onChange={(e) => updateExtraField(poNumber, key, e.target.value)}
+      onChange={(e) => updateExtraField(poNumber, part, key, e.target.value)}
     />
   );
 
@@ -96,7 +123,7 @@ function ExtraFieldsPanel({
       type="date"
       className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
       value={(extra[key] as string) || ''}
-      onChange={(e) => updateExtraField(poNumber, key, e.target.value)}
+      onChange={(e) => updateExtraField(poNumber, part, key, e.target.value)}
     />
   );
 
@@ -109,7 +136,7 @@ function ExtraFieldsPanel({
           className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
           placeholder="—"
           value={extra.chassis ?? chassisFallback}
-          onChange={(e) => updateExtraField(poNumber, 'chassis', e.target.value)}
+          onChange={(e) => updateExtraField(poNumber, part, 'chassis', e.target.value)}
         />,
       )}
       {field(
@@ -118,7 +145,7 @@ function ExtraFieldsPanel({
         <select
           className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
           value={extra.shippingMethod || 'sea freight'}
-          onChange={(e) => updateExtraField(poNumber, 'shippingMethod', e.target.value)}
+          onChange={(e) => updateExtraField(poNumber, part, 'shippingMethod', e.target.value)}
         >
           <option value="sea freight">Sea Freight</option>
           <option value="air freight">Air Freight</option>
@@ -130,7 +157,7 @@ function ExtraFieldsPanel({
         <select
           className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
           value={extra.category || ''}
-          onChange={(e) => updateExtraField(poNumber, 'category', e.target.value)}
+          onChange={(e) => updateExtraField(poNumber, part, 'category', e.target.value)}
         >
           <option value=""></option>
           <option value="自制件">自制件</option>
@@ -170,6 +197,8 @@ export default function OpenPoVendor3060Page() {
   const [extraByPo, setExtraByPo] = useState<Record<string, OpenPoExtraFields>>({});
   // Set of expanded row keys
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [uploading, setUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const fn = () => setLang(getLang());
@@ -217,11 +246,11 @@ export default function OpenPoVendor3060Page() {
       items.forEach((row) => {
         const poNumber = String(row.po_number || '').trim();
         if (!poNumber) return;
-        const current = extraByPo[poNumber] || {};
+        const current = extraByPo[makeExtraKey(poNumber, row.part || '')] || extraByPo[poNumber] || {};
         const next: Partial<OpenPoExtraFields> = {};
         if (!current.shippingMethod) next.shippingMethod = 'sea freight';
         if (!current.chassis && row.chassisnumber) next.chassis = row.chassisnumber;
-        if (Object.keys(next).length) updatesByPo[poNumber] = next;
+        if (Object.keys(next).length) updatesByPo[makeExtraKey(poNumber, row.part || '')] = { ...next, part: row.part || '' };
       });
 
       if (!Object.keys(updatesByPo).length) return;
@@ -332,13 +361,84 @@ export default function OpenPoVendor3060Page() {
     URL.revokeObjectURL(url);
   };
 
-  const updateExtraField = async (poNumber: string, field: keyof OpenPoExtraFields, value: string) => {
+  const updateExtraField = async (poNumber: string, part: string, field: keyof OpenPoExtraFields, value: string) => {
     if (!poNumber) return;
+    const extraKey = makeExtraKey(poNumber, part);
     setExtraByPo((prev) => ({
       ...prev,
-      [poNumber]: { ...prev[poNumber], [field]: value },
+      [extraKey]: { ...prev[extraKey], part, [field]: value },
     }));
-    await update(ref(database, `app_admin/openpo_vendor_3060_extra/${poNumber}`), { [field]: value });
+    await update(ref(database, `app_admin/openpo_vendor_3060_extra/${extraKey}`), { part, [field]: value });
+  };
+
+  const downloadUploadTemplate = () => {
+    const template = `${UPLOAD_TEMPLATE_HEADERS.join(',')}\n`;
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'openpo-vendor-3060-upload-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleUploadFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const text = await file.text();
+      const [headerLine, ...dataLines] = text.split(/\r?\n/).filter((line) => line.trim());
+      if (!headerLine) return;
+      const headers = headerLine.split(',').map((x) => x.trim());
+      const poIdx = headers.indexOf('po_number');
+      const partIdx = headers.indexOf('part');
+      if (poIdx === -1 || partIdx === -1) {
+        alert(
+          lang === 'zh'
+            ? '上传文件缺少 po_number 或 part 列'
+            : 'Missing po_number or part column in upload file.',
+        );
+        return;
+      }
+
+      const updatedLocal: Record<string, OpenPoExtraFields> = {};
+      const dbPromises: Promise<void>[] = [];
+
+      dataLines.forEach((line) => {
+        const cells = line.split(',').map((x) => x.trim());
+        const poNumber = String(cells[poIdx] || '').trim();
+        const part = String(cells[partIdx] || '').trim();
+        if (!poNumber || !part) return;
+        const extraKey = makeExtraKey(poNumber, part);
+        const patch: Partial<OpenPoExtraFields> = {};
+        headers.forEach((header, idx) => {
+          if (header === 'po_number') return;
+          if (!EXTRA_UPLOAD_FIELDS.has(header as keyof OpenPoExtraFields)) return;
+          const value = cells[idx] ?? '';
+          (patch as Record<string, string>)[header] = value;
+        });
+        if (!Object.keys(patch).length) return;
+        updatedLocal[extraKey] = { ...(extraByPo[extraKey] || {}), part, ...patch };
+        dbPromises.push(update(ref(database, `app_admin/openpo_vendor_3060_extra/${extraKey}`), { part, ...patch }));
+      });
+
+      if (dbPromises.length) {
+        await Promise.all(dbPromises);
+        setExtraByPo((prev) => ({ ...prev, ...updatedLocal }));
+      }
+      alert(
+        lang === 'zh'
+          ? `上传完成，共更新 ${dbPromises.length} 条记录。`
+          : `Upload complete. Updated ${dbPromises.length} records.`,
+      );
+    } catch (error) {
+      console.error(error);
+      alert(lang === 'zh' ? '上传失败，请检查 CSV 格式。' : 'Upload failed. Please check CSV format.');
+    } finally {
+      setUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = '';
+    }
   };
 
   const toggleExpand = (key: string) => {
@@ -377,6 +477,25 @@ export default function OpenPoVendor3060Page() {
             </DialogContent>
           </Dialog>
           <Button onClick={downloadExcel}>{lang === 'zh' ? '下载Excel' : 'Download Excel'}</Button>
+          <Button variant="outline" onClick={downloadUploadTemplate}>
+            {lang === 'zh' ? '下载上传模板' : 'Download Upload Template'}
+          </Button>
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleUploadFile}
+          />
+          <Button
+            variant="outline"
+            disabled={uploading}
+            onClick={() => uploadInputRef.current?.click()}
+          >
+            {uploading
+              ? (lang === 'zh' ? '上传中...' : 'Uploading...')
+              : (lang === 'zh' ? '上传数据' : 'Upload Data')}
+          </Button>
         </div>
       </div>
 
@@ -476,7 +595,7 @@ export default function OpenPoVendor3060Page() {
                   const cancelledRow = cancelled[keyOf(r)];
                   const rowKey = keyOf(r);
                   const poNumber = String(r.po_number || '');
-                  const extra = extraByPo[poNumber] || {};
+                  const extra = extraByPo[makeExtraKey(poNumber, r.part || '')] || extraByPo[poNumber] || {};
                   const isExpanded = expandedRows.has(rowKey);
                   const filled = filledCount(extra);
 
@@ -612,6 +731,7 @@ export default function OpenPoVendor3060Page() {
                             <div className="border-l-4 border-blue-400">
                               <ExtraFieldsPanel
                                 poNumber={poNumber}
+                                part={r.part || ''}
                                 extra={extra}
                                 chassisFallback={r.chassisnumber ?? ''}
                                 updateExtraField={updateExtraField}
