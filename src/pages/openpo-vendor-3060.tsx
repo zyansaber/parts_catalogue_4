@@ -48,6 +48,26 @@ type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
 type ViewTab = 'active' | 'cancelled';
 
 const PAGE_SIZE = 30;
+const UPLOAD_TEMPLATE_HEADERS = [
+  'po_number',
+  'chassis',
+  'shippingMethod',
+  'category',
+  'estimatedShipmentDate',
+  'purchasingManager',
+  'supplier',
+  'plannedArrivalDate',
+  'actualShippedQty',
+  'remainingUnshippedQty',
+  'seaFreightChassis',
+  'location',
+  'containerNo',
+  'airWaybillNo',
+  'evaluation',
+  'shippingTrackingMixed',
+  'remarks',
+];
+const EXTRA_UPLOAD_FIELDS = new Set<keyof OpenPoExtraFields>(UPLOAD_TEMPLATE_HEADERS.filter((x) => x !== 'po_number') as Array<keyof OpenPoExtraFields>);
 
 const formatDate = (value?: string) => {
   if (!value) return '-';
@@ -170,6 +190,8 @@ export default function OpenPoVendor3060Page() {
   const [extraByPo, setExtraByPo] = useState<Record<string, OpenPoExtraFields>>({});
   // Set of expanded row keys
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [uploading, setUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const fn = () => setLang(getLang());
@@ -341,6 +363,69 @@ export default function OpenPoVendor3060Page() {
     await update(ref(database, `app_admin/openpo_vendor_3060_extra/${poNumber}`), { [field]: value });
   };
 
+  const downloadUploadTemplate = () => {
+    const template = `${UPLOAD_TEMPLATE_HEADERS.join(',')}\n`;
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'openpo-vendor-3060-upload-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleUploadFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const text = await file.text();
+      const [headerLine, ...dataLines] = text.split(/\r?\n/).filter((line) => line.trim());
+      if (!headerLine) return;
+      const headers = headerLine.split(',').map((x) => x.trim());
+      const poIdx = headers.indexOf('po_number');
+      if (poIdx === -1) {
+        alert(lang === 'zh' ? '上传文件缺少 po_number 列' : 'Missing po_number column in upload file.');
+        return;
+      }
+
+      const updatedLocal: Record<string, OpenPoExtraFields> = {};
+      const dbPromises: Promise<void>[] = [];
+
+      dataLines.forEach((line) => {
+        const cells = line.split(',').map((x) => x.trim());
+        const poNumber = String(cells[poIdx] || '').trim();
+        if (!poNumber) return;
+        const patch: Partial<OpenPoExtraFields> = {};
+        headers.forEach((header, idx) => {
+          if (header === 'po_number') return;
+          if (!EXTRA_UPLOAD_FIELDS.has(header as keyof OpenPoExtraFields)) return;
+          const value = cells[idx] ?? '';
+          (patch as Record<string, string>)[header] = value;
+        });
+        if (!Object.keys(patch).length) return;
+        updatedLocal[poNumber] = { ...(extraByPo[poNumber] || {}), ...patch };
+        dbPromises.push(update(ref(database, `app_admin/openpo_vendor_3060_extra/${poNumber}`), patch));
+      });
+
+      if (dbPromises.length) {
+        await Promise.all(dbPromises);
+        setExtraByPo((prev) => ({ ...prev, ...updatedLocal }));
+      }
+      alert(
+        lang === 'zh'
+          ? `上传完成，共更新 ${dbPromises.length} 条记录。`
+          : `Upload complete. Updated ${dbPromises.length} records.`,
+      );
+    } catch (error) {
+      console.error(error);
+      alert(lang === 'zh' ? '上传失败，请检查 CSV 格式。' : 'Upload failed. Please check CSV format.');
+    } finally {
+      setUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = '';
+    }
+  };
+
   const toggleExpand = (key: string) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
@@ -377,6 +462,25 @@ export default function OpenPoVendor3060Page() {
             </DialogContent>
           </Dialog>
           <Button onClick={downloadExcel}>{lang === 'zh' ? '下载Excel' : 'Download Excel'}</Button>
+          <Button variant="outline" onClick={downloadUploadTemplate}>
+            {lang === 'zh' ? '下载上传模板' : 'Download Upload Template'}
+          </Button>
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleUploadFile}
+          />
+          <Button
+            variant="outline"
+            disabled={uploading}
+            onClick={() => uploadInputRef.current?.click()}
+          >
+            {uploading
+              ? (lang === 'zh' ? '上传中...' : 'Uploading...')
+              : (lang === 'zh' ? '上传数据' : 'Upload Data')}
+          </Button>
         </div>
       </div>
 
