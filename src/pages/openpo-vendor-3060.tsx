@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { get, ref, update } from 'firebase/database';
 import { database } from '@/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,26 +21,6 @@ type OpenPoItem = {
   description?: string;
   spras_en?: string;
   spras_zh?: string;
-  chassisnumber?: string;
-};
-
-type OpenPoExtraFields = {
-  chassis?: string;
-  shippingMethod?: 'sea freight' | 'air freight';
-  category?: '自制件' | '外购件' | '';
-  estimatedShipmentDate?: string;
-  purchasingManager?: string;
-  supplier?: string;
-  plannedArrivalDate?: string;
-  actualShippedQty?: string;
-  remainingUnshippedQty?: string;
-  seaFreightChassis?: string;
-  location?: string;
-  containerNo?: string;
-  airWaybillNo?: string;
-  evaluation?: string;
-  shippingTrackingMixed?: string;
-  remarks?: string;
 };
 
 type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
@@ -68,9 +48,6 @@ export default function OpenPoVendor3060Page() {
   const [currentPage, setCurrentPage] = useState(1);
   const [viewTab, setViewTab] = useState<ViewTab>('active');
   const [bulkPoInput, setBulkPoInput] = useState('');
-  const [extraByPo, setExtraByPo] = useState<Record<string, OpenPoExtraFields>>({});
-  const topScrollRef = useRef<HTMLDivElement | null>(null);
-  const tableScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const fn = () => setLang(getLang());
@@ -84,8 +61,7 @@ export default function OpenPoVendor3060Page() {
       FirebaseService.getAllParts(),
       get(ref(database, 'app_admin/purchasing_group_mapping')),
       get(ref(database, 'app_admin/cancelled_openpo')),
-      get(ref(database, 'app_admin/openpo_vendor_3060_extra')),
-    ]).then(([openSnap, allParts, mapSnap, cancelSnap, extraSnap]) => {
+    ]).then(([openSnap, allParts, mapSnap, cancelSnap]) => {
       setItems(Object.values((openSnap.val() || {}) as Record<string, OpenPoItem>));
       const stockMap = Object.entries(allParts || {}).reduce<Record<string, number>>((acc, [material, part]) => {
         const key = String(material || '').trim();
@@ -108,59 +84,8 @@ export default function OpenPoVendor3060Page() {
       setDescByPart(partDescMap);
       setMapping((mapSnap.val() || {}) as Record<string, string>);
       setCancelled((cancelSnap.val() || {}) as Record<string, boolean>);
-      setExtraByPo((extraSnap.val() || {}) as Record<string, OpenPoExtraFields>);
     });
   }, []);
-
-  useEffect(() => {
-    const top = topScrollRef.current;
-    const table = tableScrollRef.current;
-    if (!top || !table) return;
-    const syncFromTop = () => {
-      table.scrollLeft = top.scrollLeft;
-    };
-    const syncFromTable = () => {
-      top.scrollLeft = table.scrollLeft;
-    };
-    top.addEventListener('scroll', syncFromTop);
-    table.addEventListener('scroll', syncFromTable);
-    return () => {
-      top.removeEventListener('scroll', syncFromTop);
-      table.removeEventListener('scroll', syncFromTable);
-    };
-  }, [pagedRows.length]);
-
-
-  useEffect(() => {
-    const initExtras = async () => {
-      const updatesByPo: Record<string, Partial<OpenPoExtraFields>> = {};
-      items.forEach((row) => {
-        const poNumber = String(row.po_number || '').trim();
-        if (!poNumber) return;
-        const current = extraByPo[poNumber] || {};
-        const next: Partial<OpenPoExtraFields> = {};
-        if (!current.shippingMethod) next.shippingMethod = 'sea freight';
-        if (!current.chassis && row.chassisnumber) next.chassis = row.chassisnumber;
-        if (Object.keys(next).length) updatesByPo[poNumber] = next;
-      });
-
-      if (!Object.keys(updatesByPo).length) return;
-
-      setExtraByPo((prev) => {
-        const merged = { ...prev };
-        Object.entries(updatesByPo).forEach(([po, patch]) => {
-          merged[po] = { ...merged[po], ...patch };
-        });
-        return merged;
-      });
-
-      await Promise.all(
-        Object.entries(updatesByPo).map(([po, patch]) => update(ref(database, `app_admin/openpo_vendor_3060_extra/${po}`), patch)),
-      );
-    };
-
-    void initExtras();
-  }, [items, extraByPo]);
 
   const vendorFiltered = useMemo(
     () => items.filter((i) => String(i.vendor || '').replace(/^0+/, '').trim() === '3060'),
@@ -255,20 +180,6 @@ export default function OpenPoVendor3060Page() {
     URL.revokeObjectURL(url);
   };
 
-  const updateExtraField = async (poNumber: string, field: keyof OpenPoExtraFields, value: string) => {
-    if (!poNumber) return;
-    setExtraByPo((prev) => ({
-      ...prev,
-      [poNumber]: {
-        ...prev[poNumber],
-        [field]: value,
-      },
-    }));
-    await update(ref(database, `app_admin/openpo_vendor_3060_extra/${poNumber}`), {
-      [field]: value,
-    });
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -344,11 +255,7 @@ export default function OpenPoVendor3060Page() {
       </div>
 
       <Card>
-        <CardContent className="pt-6">
-          <div ref={topScrollRef} className="mb-2 overflow-x-auto overflow-y-hidden">
-            <div className="h-1 min-w-[4200px]" />
-          </div>
-          <div ref={tableScrollRef} className="overflow-auto">
+        <CardContent className="overflow-auto pt-6">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b text-left">
@@ -363,30 +270,12 @@ export default function OpenPoVendor3060Page() {
                 <th className="p-2 text-right">{t(lang, 'orderQty')}</th>
                 <th className="p-2 text-right">{t(lang, 'receivedQty')}</th>
                 <th className="p-2 text-right">{t(lang, 'openQty')}</th>
-                <th className="p-2">Chassis</th>
-                <th className="p-2">运输方式</th>
-                <th className="p-2">分类</th>
-                <th className="p-2">预计发运时间</th>
-                <th className="p-2">采购经理</th>
-                <th className="p-2">供应商</th>
-                <th className="p-2">计划到货时间</th>
-                <th className="p-2">实发数量</th>
-                <th className="p-2">剩余未发数量</th>
-                <th className="p-2">海运车架号（集装箱）</th>
-                <th className="p-2">位置</th>
-                <th className="p-2">集装箱号</th>
-                <th className="p-2">空运单号</th>
-                <th className="p-2">评价</th>
-                <th className="p-2">发货集装箱号/空运单号/车架号</th>
-                <th className="p-2">备注</th>
                 <th className="p-2">{lang === 'zh' ? '操作' : 'Action'}</th>
               </tr>
             </thead>
             <tbody>
               {pagedRows.map((r, i) => {
                 const cancelledRow = cancelled[keyOf(r)];
-                const poNumber = String(r.po_number || '');
-                const extra = extraByPo[poNumber] || {};
                 return (
                   <tr key={i} className={`border-b ${cancelledRow ? 'line-through text-gray-400' : ''}`}>
                     <td className="p-2">{r.po_number || '-'}</td>
@@ -428,22 +317,6 @@ export default function OpenPoVendor3060Page() {
                     <td className="p-2 text-right">{displayNumber(r.orderqty)}</td>
                     <td className="p-2 text-right">{displayNumber(r.receivedqty)}</td>
                     <td className="p-2 text-right">{displayNumber(r.openqty)}</td>
-                    <td className="p-2"><input className="w-40 rounded border p-1" value={extra.chassis ?? r.chassisnumber ?? ''} onChange={(e) => updateExtraField(poNumber, 'chassis', e.target.value)} /></td>
-                    <td className="p-2"><select className="w-40 rounded border p-1" value={extra.shippingMethod || 'sea freight'} onChange={(e) => updateExtraField(poNumber, 'shippingMethod', e.target.value)}><option value="sea freight">sea freight</option><option value="air freight">air freight</option></select></td>
-                    <td className="p-2"><select className="w-32 rounded border p-1" value={extra.category || ''} onChange={(e) => updateExtraField(poNumber, 'category', e.target.value)}><option value=""></option><option value="自制件">自制件</option><option value="外购件">外购件</option></select></td>
-                    <td className="p-2"><input type="date" className="w-40 rounded border p-1" value={extra.estimatedShipmentDate || ''} onChange={(e) => updateExtraField(poNumber, 'estimatedShipmentDate', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-32 rounded border p-1" value={extra.purchasingManager || ''} onChange={(e) => updateExtraField(poNumber, 'purchasingManager', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-32 rounded border p-1" value={extra.supplier || ''} onChange={(e) => updateExtraField(poNumber, 'supplier', e.target.value)} /></td>
-                    <td className="p-2"><input type="date" className="w-40 rounded border p-1" value={extra.plannedArrivalDate || ''} onChange={(e) => updateExtraField(poNumber, 'plannedArrivalDate', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-28 rounded border p-1" value={extra.actualShippedQty || ''} onChange={(e) => updateExtraField(poNumber, 'actualShippedQty', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-28 rounded border p-1" value={extra.remainingUnshippedQty || ''} onChange={(e) => updateExtraField(poNumber, 'remainingUnshippedQty', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-44 rounded border p-1" value={extra.seaFreightChassis || ''} onChange={(e) => updateExtraField(poNumber, 'seaFreightChassis', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-28 rounded border p-1" value={extra.location || ''} onChange={(e) => updateExtraField(poNumber, 'location', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-32 rounded border p-1" value={extra.containerNo || ''} onChange={(e) => updateExtraField(poNumber, 'containerNo', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-32 rounded border p-1" value={extra.airWaybillNo || ''} onChange={(e) => updateExtraField(poNumber, 'airWaybillNo', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-28 rounded border p-1" value={extra.evaluation || ''} onChange={(e) => updateExtraField(poNumber, 'evaluation', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-48 rounded border p-1" value={extra.shippingTrackingMixed || ''} onChange={(e) => updateExtraField(poNumber, 'shippingTrackingMixed', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-48 rounded border p-1" value={extra.remarks || ''} onChange={(e) => updateExtraField(poNumber, 'remarks', e.target.value)} /></td>
                     <td className="p-2">
                       <Button variant="outline" size="sm" onClick={() => toggleCancel(r)}>
                         {cancelledRow ? (lang === 'zh' ? '恢复' : 'Undo') : 'Cancel'}
@@ -454,7 +327,6 @@ export default function OpenPoVendor3060Page() {
               })}
             </tbody>
           </table>
-          </div>
         </CardContent>
       </Card>
 
