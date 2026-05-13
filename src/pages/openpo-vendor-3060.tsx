@@ -34,6 +34,7 @@ type OpenPoExtraFields = {
   purchasingManager?: string;
   supplier?: string;
   plannedArrivalDate?: string;
+  actualShipmentDate?: string;
   actualShippedQty?: string;
   remainingUnshippedQty?: string;
   seaFreightChassis?: string;
@@ -61,6 +62,7 @@ const UPLOAD_TEMPLATE_HEADERS_ZH = [
   '采购经理',
   '供应商',
   '计划到货时间',
+  '实际发货时间',
   '实发数量',
   '剩余未发数量',
   '海运车架号（集装箱）',
@@ -79,6 +81,7 @@ const HEADER_TO_FIELD: Record<string, keyof OpenPoExtraFields> = {
   采购经理: 'purchasingManager',
   供应商: 'supplier',
   计划到货时间: 'plannedArrivalDate',
+  实际发货时间: 'actualShipmentDate',
   实发数量: 'actualShippedQty',
   剩余未发数量: 'remainingUnshippedQty',
   '海运车架号（集装箱）': 'seaFreightChassis',
@@ -187,6 +190,7 @@ function ExtraFieldsPanel({
       {field('采购经理', 'purchasingManager', inp('purchasingManager'))}
       {field('供应商', 'supplier', inp('supplier'))}
       {field('计划到货时间', 'plannedArrivalDate', dateInp('plannedArrivalDate'))}
+      {field('实际发货时间', 'actualShipmentDate', dateInp('actualShipmentDate'))}
       {field('实发数量', 'actualShippedQty', inp('actualShippedQty'))}
       {field('剩余未发数量', 'remainingUnshippedQty', inp('remainingUnshippedQty'))}
       {field('海运车架号（集装箱）', 'seaFreightChassis', inp('seaFreightChassis'))}
@@ -406,6 +410,7 @@ export default function OpenPoVendor3060Page() {
         extra.purchasingManager || '',
         extra.supplier || '',
         extra.plannedArrivalDate || '',
+        extra.actualShipmentDate || '',
         extra.actualShippedQty || '',
         extra.remainingUnshippedQty || '',
         extra.seaFreightChassis || '',
