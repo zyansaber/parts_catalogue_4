@@ -7,6 +7,7 @@ import { ImageWithFallback } from '@/components/ui/image-with-fallback';
 import { FirebaseService } from '@/services/firebase';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { getLang, t, type Lang } from '@/lib/i18n';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 type OpenPoItem = {
   po_number?: string;
@@ -57,6 +58,104 @@ const formatDate = (value?: string) => {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 };
 
+// ─── Extra fields panel ───────────────────────────────────────────────────────
+
+function ExtraFieldsPanel({
+  poNumber,
+  extra,
+  chassisFallback,
+  updateExtraField,
+}: {
+  poNumber: string;
+  extra: OpenPoExtraFields;
+  chassisFallback: string;
+  updateExtraField: (po: string, field: keyof OpenPoExtraFields, value: string) => void;
+}) {
+  const field = (
+    label: string,
+    key: keyof OpenPoExtraFields,
+    node: React.ReactNode,
+  ) => (
+    <div className="flex flex-col gap-0.5">
+      <label className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{label}</label>
+      {node}
+    </div>
+  );
+
+  const inp = (key: keyof OpenPoExtraFields, placeholder?: string) => (
+    <input
+      className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
+      placeholder={placeholder ?? '—'}
+      value={(extra[key] as string) || ''}
+      onChange={(e) => updateExtraField(poNumber, key, e.target.value)}
+    />
+  );
+
+  const dateInp = (key: keyof OpenPoExtraFields) => (
+    <input
+      type="date"
+      className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
+      value={(extra[key] as string) || ''}
+      onChange={(e) => updateExtraField(poNumber, key, e.target.value)}
+    />
+  );
+
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-3 bg-gray-50 px-6 py-4 sm:grid-cols-4">
+      {field(
+        'Chassis',
+        'chassis',
+        <input
+          className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
+          placeholder="—"
+          value={extra.chassis ?? chassisFallback}
+          onChange={(e) => updateExtraField(poNumber, 'chassis', e.target.value)}
+        />,
+      )}
+      {field(
+        '运输方式',
+        'shippingMethod',
+        <select
+          className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
+          value={extra.shippingMethod || 'sea freight'}
+          onChange={(e) => updateExtraField(poNumber, 'shippingMethod', e.target.value)}
+        >
+          <option value="sea freight">Sea Freight</option>
+          <option value="air freight">Air Freight</option>
+        </select>,
+      )}
+      {field(
+        '分类',
+        'category',
+        <select
+          className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
+          value={extra.category || ''}
+          onChange={(e) => updateExtraField(poNumber, 'category', e.target.value)}
+        >
+          <option value=""></option>
+          <option value="自制件">自制件</option>
+          <option value="外购件">外购件</option>
+        </select>,
+      )}
+      {field('预计发运时间', 'estimatedShipmentDate', dateInp('estimatedShipmentDate'))}
+      {field('采购经理', 'purchasingManager', inp('purchasingManager'))}
+      {field('供应商', 'supplier', inp('supplier'))}
+      {field('计划到货时间', 'plannedArrivalDate', dateInp('plannedArrivalDate'))}
+      {field('实发数量', 'actualShippedQty', inp('actualShippedQty'))}
+      {field('剩余未发数量', 'remainingUnshippedQty', inp('remainingUnshippedQty'))}
+      {field('海运车架号（集装箱）', 'seaFreightChassis', inp('seaFreightChassis'))}
+      {field('位置', 'location', inp('location'))}
+      {field('集装箱号', 'containerNo', inp('containerNo'))}
+      {field('空运单号', 'airWaybillNo', inp('airWaybillNo'))}
+      {field('评价', 'evaluation', inp('evaluation'))}
+      {field('发货集装箱号/空运单号/车架号', 'shippingTrackingMixed', inp('shippingTrackingMixed'))}
+      {field('备注', 'remarks', inp('remarks'))}
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function OpenPoVendor3060Page() {
   const [items, setItems] = useState<OpenPoItem[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
@@ -69,8 +168,8 @@ export default function OpenPoVendor3060Page() {
   const [viewTab, setViewTab] = useState<ViewTab>('active');
   const [bulkPoInput, setBulkPoInput] = useState('');
   const [extraByPo, setExtraByPo] = useState<Record<string, OpenPoExtraFields>>({});
-  const topScrollRef = useRef<HTMLDivElement | null>(null);
-  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  // Set of expanded row keys
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const fn = () => setLang(getLang());
@@ -112,7 +211,6 @@ export default function OpenPoVendor3060Page() {
     });
   }, []);
 
-
   useEffect(() => {
     const initExtras = async () => {
       const updatesByPo: Record<string, Partial<OpenPoExtraFields>> = {};
@@ -137,7 +235,9 @@ export default function OpenPoVendor3060Page() {
       });
 
       await Promise.all(
-        Object.entries(updatesByPo).map(([po, patch]) => update(ref(database, `app_admin/openpo_vendor_3060_extra/${po}`), patch)),
+        Object.entries(updatesByPo).map(([po, patch]) =>
+          update(ref(database, `app_admin/openpo_vendor_3060_extra/${po}`), patch),
+        ),
       );
     };
 
@@ -174,32 +274,10 @@ export default function OpenPoVendor3060Page() {
     return visibleRows.slice(start, start + PAGE_SIZE);
   }, [visibleRows, currentPage]);
 
-  useEffect(() => {
-    const top = topScrollRef.current;
-    const table = tableScrollRef.current;
-    if (!top || !table) return;
-    const syncFromTop = () => {
-      table.scrollLeft = top.scrollLeft;
-    };
-    const syncFromTable = () => {
-      top.scrollLeft = table.scrollLeft;
-    };
-    top.addEventListener('scroll', syncFromTop);
-    table.addEventListener('scroll', syncFromTable);
-    return () => {
-      top.removeEventListener('scroll', syncFromTop);
-      table.removeEventListener('scroll', syncFromTable);
-    };
-  }, [pagedRows.length]);
+  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab]);
 
   useEffect(() => {
-    setCurrentPage(1);
-  }, [purchaserFilter, viewTab]);
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
+    if (currentPage > totalPages) setCurrentPage(totalPages);
   }, [currentPage, totalPages]);
 
   const toggleCancel = async (row: OpenPoItem) => {
@@ -211,17 +289,12 @@ export default function OpenPoVendor3060Page() {
 
   const bulkCancelByPo = async () => {
     const poSet = new Set(
-      bulkPoInput
-        .split(/[\s,;\n\r\t]+/)
-        .map((x) => x.trim())
-        .filter(Boolean),
+      bulkPoInput.split(/[\s,;\n\r\t]+/).map((x) => x.trim()).filter(Boolean),
     );
     if (!poSet.size) return;
     const updates: Record<string, boolean> = {};
     filtered.forEach((row) => {
-      if (poSet.has(String(row.po_number || '').trim())) {
-        updates[keyOf(row)] = true;
-      }
+      if (poSet.has(String(row.po_number || '').trim())) updates[keyOf(row)] = true;
     });
     if (!Object.keys(updates).length) return;
     setCancelled((prev) => ({ ...prev, ...updates }));
@@ -231,7 +304,11 @@ export default function OpenPoVendor3060Page() {
   };
 
   const downloadExcel = () => {
-    const headers = ['PO Number', 'Australia Purchaser', 'Part', 'Description EN (PO)', 'Description ZH (By Part)', 'Order Date', 'Delivery Date', 'Order Qty', 'Received Qty', 'Open Qty', 'Cancelled'];
+    const headers = [
+      'PO Number', 'Australia Purchaser', 'Part', 'Description EN (PO)',
+      'Description ZH (By Part)', 'Order Date', 'Delivery Date', 'Order Qty',
+      'Received Qty', 'Open Qty', 'Cancelled',
+    ];
     const rows = filtered.map((r) => [
       r.po_number || '-',
       mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-',
@@ -259,18 +336,26 @@ export default function OpenPoVendor3060Page() {
     if (!poNumber) return;
     setExtraByPo((prev) => ({
       ...prev,
-      [poNumber]: {
-        ...prev[poNumber],
-        [field]: value,
-      },
+      [poNumber]: { ...prev[poNumber], [field]: value },
     }));
-    await update(ref(database, `app_admin/openpo_vendor_3060_extra/${poNumber}`), {
-      [field]: value,
+    await update(ref(database, `app_admin/openpo_vendor_3060_extra/${poNumber}`), { [field]: value });
+  };
+
+  const toggleExpand = (key: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
     });
   };
 
+  // ─── Extra fields summary badge (shows how many fields are filled) ───────────
+  const filledCount = (extra: OpenPoExtraFields) =>
+    Object.values(extra).filter((v) => v !== undefined && v !== '' && v !== 'sea freight').length;
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">{t(lang, 'openPoVendor3060')}</h1>
         <div className="flex items-center gap-2">
@@ -279,7 +364,9 @@ export default function OpenPoVendor3060Page() {
               <Button variant="outline">{lang === 'zh' ? '批量取消PO' : 'Bulk Cancel PO'}</Button>
             </DialogTrigger>
             <DialogContent className="max-w-lg space-y-3">
-              <h2 className="text-lg font-semibold">{lang === 'zh' ? '上传/粘贴PO号并取消' : 'Upload/Paste PO numbers to cancel'}</h2>
+              <h2 className="text-lg font-semibold">
+                {lang === 'zh' ? '上传/粘贴PO号并取消' : 'Upload/Paste PO numbers to cancel'}
+              </h2>
               <textarea
                 className="min-h-56 w-full rounded border p-3 text-sm"
                 placeholder={lang === 'zh' ? '每行一个PO号，或使用逗号/空格分隔' : 'One PO per line, or comma/space separated'}
@@ -293,6 +380,7 @@ export default function OpenPoVendor3060Page() {
         </div>
       </div>
 
+      {/* View tabs */}
       <div className="flex items-center gap-2">
         <Button variant={viewTab === 'active' ? 'default' : 'outline'} onClick={() => setViewTab('active')}>
           {lang === 'zh' ? '开放订单' : 'Open Orders'}
@@ -302,6 +390,7 @@ export default function OpenPoVendor3060Page() {
         </Button>
       </div>
 
+      {/* Purchaser filter */}
       {viewTab === 'active' && (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Button
@@ -321,6 +410,7 @@ export default function OpenPoVendor3060Page() {
         </div>
       )}
 
+      {/* Pagination info */}
       <div className="flex items-center gap-3">
         {viewTab === 'active' && (
           <Button variant={purchaserFilter === 'all' ? 'default' : 'outline'} onClick={() => setPurchaserFilter('all')}>
@@ -328,10 +418,13 @@ export default function OpenPoVendor3060Page() {
           </Button>
         )}
         <span className="text-sm text-gray-500">
-          {lang === 'zh' ? `第 ${currentPage} / ${totalPages} 页（每页 ${PAGE_SIZE} 条）` : `Page ${currentPage} of ${totalPages} (${PAGE_SIZE} rows/page)`}
+          {lang === 'zh'
+            ? `第 ${currentPage} / ${totalPages} 页（每页 ${PAGE_SIZE} 条）`
+            : `Page ${currentPage} of ${totalPages} (${PAGE_SIZE} rows/page)`}
         </span>
       </div>
 
+      {/* Summary cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>{t(lang, 'lineCount')}</CardTitle></CardHeader>
@@ -343,121 +436,200 @@ export default function OpenPoVendor3060Page() {
         </Card>
       </div>
 
+      {/* ── Main table ─────────────────────────────────────────────────────────── */}
       <Card>
-        <CardContent className="pt-6">
-          <div ref={topScrollRef} className="mb-2 overflow-x-auto overflow-y-hidden">
-            <div className="h-1 min-w-[4200px]" />
-          </div>
-          <div ref={tableScrollRef} className="overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="p-2">{t(lang, 'poNumber')}</th>
-                <th className="p-2">{lang === 'zh' ? '采购专员' : 'Australia Purchaser'}</th>
-                <th className="p-2">{t(lang, 'part')}</th>
-                <th className="p-2">{lang === 'zh' ? '照片' : 'Photo'}</th>
-                <th className="p-2">{lang === 'zh' ? '澳洲库存' : 'Australian Stock'}</th>
-                <th className="p-2">{lang === 'zh' ? '描述（英文PO / 中文主数据）' : 'Description (EN from PO / ZH from Part Master)'}</th>
-                <th className="p-2">{t(lang, 'orderDate')}</th>
-                <th className="p-2">{t(lang, 'deliveryDate')}</th>
-                <th className="p-2 text-right">{t(lang, 'orderQty')}</th>
-                <th className="p-2 text-right">{t(lang, 'receivedQty')}</th>
-                <th className="p-2 text-right">{t(lang, 'openQty')}</th>
-                <th className="p-2">Chassis</th>
-                <th className="p-2">运输方式</th>
-                <th className="p-2">分类</th>
-                <th className="p-2">预计发运时间</th>
-                <th className="p-2">采购经理</th>
-                <th className="p-2">供应商</th>
-                <th className="p-2">计划到货时间</th>
-                <th className="p-2">实发数量</th>
-                <th className="p-2">剩余未发数量</th>
-                <th className="p-2">海运车架号（集装箱）</th>
-                <th className="p-2">位置</th>
-                <th className="p-2">集装箱号</th>
-                <th className="p-2">空运单号</th>
-                <th className="p-2">评价</th>
-                <th className="p-2">发货集装箱号/空运单号/车架号</th>
-                <th className="p-2">备注</th>
-                <th className="p-2">{lang === 'zh' ? '操作' : 'Action'}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedRows.map((r, i) => {
-                const cancelledRow = cancelled[keyOf(r)];
-                const poNumber = String(r.po_number || '');
-                const extra = extraByPo[poNumber] || {};
-                return (
-                  <tr key={i} className={`border-b ${cancelledRow ? 'line-through text-gray-400' : ''}`}>
-                    <td className="p-2">{r.po_number || '-'}</td>
-                    <td className="p-2">{mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-'}</td>
-                    <td className="p-2">{r.part || '-'}</td>
-                    <td className="p-2">
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <button className="h-12 w-12 overflow-hidden rounded border">
-                            <ImageWithFallback
-                              src={FirebaseService.getPartImageUrl(r.part || '')}
-                              fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
-                              alt={r.part || 'part'}
-                              className="h-full w-full object-contain"
-                            />
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  {/* Expand toggle */}
+                  <th className="sticky left-0 z-10 bg-gray-50 px-3 py-3 w-8" />
+                  {/* Sticky cols */}
+                  <th className="sticky left-8 z-10 bg-gray-50 px-3 py-3 whitespace-nowrap">
+                    {t(lang, 'poNumber')}
+                  </th>
+                  <th className="px-3 py-3 whitespace-nowrap">
+                    {lang === 'zh' ? '采购专员' : 'Purchaser'}
+                  </th>
+                  <th className="px-3 py-3 whitespace-nowrap">{t(lang, 'part')}</th>
+                  <th className="px-3 py-3 whitespace-nowrap">{lang === 'zh' ? '照片' : 'Photo'}</th>
+                  <th className="px-3 py-3 whitespace-nowrap">{lang === 'zh' ? '澳洲库存' : 'AU Stock'}</th>
+                  <th className="px-3 py-3 min-w-[200px]">
+                    {lang === 'zh' ? '描述' : 'Description'}
+                  </th>
+                  <th className="px-3 py-3 whitespace-nowrap">{t(lang, 'orderDate')}</th>
+                  <th className="px-3 py-3 whitespace-nowrap">{t(lang, 'deliveryDate')}</th>
+                  <th className="px-3 py-3 text-right whitespace-nowrap">{t(lang, 'orderQty')}</th>
+                  <th className="px-3 py-3 text-right whitespace-nowrap">{t(lang, 'receivedQty')}</th>
+                  <th className="px-3 py-3 text-right whitespace-nowrap">{t(lang, 'openQty')}</th>
+                  <th className="px-3 py-3 whitespace-nowrap">
+                    {lang === 'zh' ? '发货信息' : 'Shipping Info'}
+                  </th>
+                  <th className="px-3 py-3 whitespace-nowrap">
+                    {lang === 'zh' ? '操作' : 'Action'}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {pagedRows.map((r, i) => {
+                  const cancelledRow = cancelled[keyOf(r)];
+                  const rowKey = keyOf(r);
+                  const poNumber = String(r.po_number || '');
+                  const extra = extraByPo[poNumber] || {};
+                  const isExpanded = expandedRows.has(rowKey);
+                  const filled = filledCount(extra);
+
+                  return (
+                    <>
+                      {/* Main row */}
+                      <tr
+                        key={rowKey}
+                        className={`transition-colors hover:bg-gray-50 ${cancelledRow ? 'opacity-40' : ''} ${isExpanded ? 'bg-blue-50/30' : ''}`}
+                      >
+                        {/* Expand toggle */}
+                        <td className="sticky left-0 z-10 bg-inherit px-2 py-2 w-8">
+                          <button
+                            className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+                            onClick={() => toggleExpand(rowKey)}
+                            title={isExpanded ? 'Collapse' : 'Expand shipping details'}
+                          >
+                            {isExpanded
+                              ? <ChevronDown className="h-4 w-4" />
+                              : <ChevronRight className="h-4 w-4" />
+                            }
                           </button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-xl">
-                          <div className="h-[60vh] overflow-hidden rounded">
-                            <ImageWithFallback
-                              src={FirebaseService.getPartImageUrl(r.part || '')}
-                              fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
-                              alt={r.part || 'part'}
-                              className="h-full w-full object-contain"
-                            />
+                        </td>
+
+                        {/* PO Number – sticky */}
+                        <td className="sticky left-8 z-10 bg-inherit px-3 py-2 font-mono text-xs font-medium">
+                          {cancelledRow
+                            ? <span className="line-through text-gray-400">{r.po_number || '-'}</span>
+                            : r.po_number || '-'
+                          }
+                        </td>
+
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-600">
+                          {mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-'}
+                        </td>
+
+                        <td className="px-3 py-2 font-mono text-xs">{r.part || '-'}</td>
+
+                        {/* Photo */}
+                        <td className="px-3 py-2">
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <button className="h-10 w-10 overflow-hidden rounded border hover:border-blue-400 transition-colors">
+                                <ImageWithFallback
+                                  src={FirebaseService.getPartImageUrl(r.part || '')}
+                                  fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
+                                  alt={r.part || 'part'}
+                                  className="h-full w-full object-contain"
+                                />
+                              </button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-xl">
+                              <div className="h-[60vh] overflow-hidden rounded">
+                                <ImageWithFallback
+                                  src={FirebaseService.getPartImageUrl(r.part || '')}
+                                  fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
+                                  alt={r.part || 'part'}
+                                  className="h-full w-full object-contain"
+                                />
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                        </td>
+
+                        {/* AU Stock */}
+                        <td className="px-3 py-2 text-right tabular-nums text-xs">
+                          {displayNumber(stockByPart[String(r.part || '').trim()] || 0)}
+                        </td>
+
+                        {/* Description */}
+                        <td className="px-3 py-2 max-w-[240px]">
+                          <div className="space-y-0.5">
+                            <div className="text-xs leading-snug text-gray-800 line-clamp-2">
+                              {r.spras_en || r.description || '-'}
+                            </div>
+                            <div className="text-[10px] leading-snug text-gray-400">
+                              {descByPart[String(r.part || '').trim()]?.zh || r.spras_zh || ''}
+                            </div>
                           </div>
-                        </DialogContent>
-                      </Dialog>
-                    </td>
-                    <td className="p-2">{displayNumber(stockByPart[String(r.part || '').trim()] || 0)}</td>
-                    <td className="p-2">
-                      <div className="space-y-1">
-                        <div><span className="text-xs text-gray-500">EN:</span> {r.spras_en || r.description || '-'}</div>
-                        <div><span className="text-xs text-gray-500">ZH:</span> {descByPart[String(r.part || '').trim()]?.zh || r.spras_zh || '-'}</div>
-                      </div>
-                    </td>
-                    <td className="p-2">{formatDate(r.orderdate)}</td>
-                    <td className="p-2">{formatDate(r.deliverydate)}</td>
-                    <td className="p-2 text-right">{displayNumber(r.orderqty)}</td>
-                    <td className="p-2 text-right">{displayNumber(r.receivedqty)}</td>
-                    <td className="p-2 text-right">{displayNumber(r.openqty)}</td>
-                    <td className="p-2"><input className="w-40 rounded border p-1" value={extra.chassis ?? r.chassisnumber ?? ''} onChange={(e) => updateExtraField(poNumber, 'chassis', e.target.value)} /></td>
-                    <td className="p-2"><select className="w-40 rounded border p-1" value={extra.shippingMethod || 'sea freight'} onChange={(e) => updateExtraField(poNumber, 'shippingMethod', e.target.value)}><option value="sea freight">sea freight</option><option value="air freight">air freight</option></select></td>
-                    <td className="p-2"><select className="w-32 rounded border p-1" value={extra.category || ''} onChange={(e) => updateExtraField(poNumber, 'category', e.target.value)}><option value=""></option><option value="自制件">自制件</option><option value="外购件">外购件</option></select></td>
-                    <td className="p-2"><input type="date" className="w-40 rounded border p-1" value={extra.estimatedShipmentDate || ''} onChange={(e) => updateExtraField(poNumber, 'estimatedShipmentDate', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-32 rounded border p-1" value={extra.purchasingManager || ''} onChange={(e) => updateExtraField(poNumber, 'purchasingManager', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-32 rounded border p-1" value={extra.supplier || ''} onChange={(e) => updateExtraField(poNumber, 'supplier', e.target.value)} /></td>
-                    <td className="p-2"><input type="date" className="w-40 rounded border p-1" value={extra.plannedArrivalDate || ''} onChange={(e) => updateExtraField(poNumber, 'plannedArrivalDate', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-28 rounded border p-1" value={extra.actualShippedQty || ''} onChange={(e) => updateExtraField(poNumber, 'actualShippedQty', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-28 rounded border p-1" value={extra.remainingUnshippedQty || ''} onChange={(e) => updateExtraField(poNumber, 'remainingUnshippedQty', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-44 rounded border p-1" value={extra.seaFreightChassis || ''} onChange={(e) => updateExtraField(poNumber, 'seaFreightChassis', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-28 rounded border p-1" value={extra.location || ''} onChange={(e) => updateExtraField(poNumber, 'location', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-32 rounded border p-1" value={extra.containerNo || ''} onChange={(e) => updateExtraField(poNumber, 'containerNo', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-32 rounded border p-1" value={extra.airWaybillNo || ''} onChange={(e) => updateExtraField(poNumber, 'airWaybillNo', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-28 rounded border p-1" value={extra.evaluation || ''} onChange={(e) => updateExtraField(poNumber, 'evaluation', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-48 rounded border p-1" value={extra.shippingTrackingMixed || ''} onChange={(e) => updateExtraField(poNumber, 'shippingTrackingMixed', e.target.value)} /></td>
-                    <td className="p-2"><input className="w-48 rounded border p-1" value={extra.remarks || ''} onChange={(e) => updateExtraField(poNumber, 'remarks', e.target.value)} /></td>
-                    <td className="p-2">
-                      <Button variant="outline" size="sm" onClick={() => toggleCancel(r)}>
-                        {cancelledRow ? (lang === 'zh' ? '恢复' : 'Undo') : 'Cancel'}
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        </td>
+
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-600">{formatDate(r.orderdate)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-600">{formatDate(r.deliverydate)}</td>
+
+                        <td className="px-3 py-2 text-right tabular-nums text-xs">{displayNumber(r.orderqty)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-xs">{displayNumber(r.receivedqty)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-blue-700">{displayNumber(r.openqty)}</td>
+
+                        {/* Shipping info summary */}
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-1">
+                            {extra.shippingMethod && (
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${extra.shippingMethod === 'air freight' ? 'bg-purple-100 text-purple-700' : 'bg-sky-100 text-sky-700'}`}>
+                                {extra.shippingMethod === 'air freight' ? '✈ Air' : '🚢 Sea'}
+                              </span>
+                            )}
+                            {extra.category && (
+                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                {extra.category}
+                              </span>
+                            )}
+                            {extra.chassis && (
+                              <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 font-mono text-[10px] text-gray-600">
+                                {extra.chassis}
+                              </span>
+                            )}
+                            {filled === 0 && (
+                              <button
+                                className="text-[10px] text-gray-400 hover:text-blue-500 underline"
+                                onClick={() => toggleExpand(rowKey)}
+                              >
+                                + add details
+                              </button>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Action */}
+                        <td className="px-3 py-2">
+                          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => toggleCancel(r)}>
+                            {cancelledRow
+                              ? (lang === 'zh' ? '恢复' : 'Undo')
+                              : 'Cancel'}
+                          </Button>
+                        </td>
+                      </tr>
+
+                      {/* Expanded extra fields row */}
+                      {isExpanded && (
+                        <tr key={`${rowKey}_extra`} className="bg-gray-50/80">
+                          {/* colspan = total number of columns (14) */}
+                          <td colSpan={14} className="p-0">
+                            <div className="border-l-4 border-blue-400">
+                              <ExtraFieldsPanel
+                                poNumber={poNumber}
+                                extra={extra}
+                                chassisFallback={r.chassisnumber ?? ''}
+                                updateExtraField={updateExtraField}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </CardContent>
       </Card>
 
+      {/* Pagination */}
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>
           {lang === 'zh' ? '上一页' : 'Previous'}
