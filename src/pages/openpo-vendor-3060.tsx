@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { get, ref, set, update } from 'firebase/database';
+import { get, ref, update } from 'firebase/database';
 import { database } from '@/lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,6 @@ type OpenPoItem = {
   spras_en?: string;
   spras_zh?: string;
   chassisnumber?: string;
-  cancelled?: boolean;
 };
 
 type OpenPoExtraFields = {
@@ -52,42 +51,27 @@ type ViewTab = 'active' | 'cancelled';
 
 const PAGE_SIZE = 30;
 const TEMPLATE_PK_HEADER = '采购订单号+零件号';
-const BASE_UPLOAD_HEADERS_ZH = [
+const UPLOAD_TEMPLATE_HEADERS_ZH = [
   TEMPLATE_PK_HEADER,
   '采购订单号',
   '零件号',
-  '供应商编码',
-  '采购组',
-  '下单日期',
-  '交期',
-  '订单数量',
-  '收货数量',
-  '未清数量',
-  '英文描述',
-  '中文描述',
   '车架号',
-  '是否取消',
-];
-const UPLOAD_TEMPLATE_HEADERS_ZH = [
-  ...BASE_UPLOAD_HEADERS_ZH,
-  ...[
-    '运输方式',
-    '分类',
-    '预计发运时间',
-    '采购经理',
-    '供应商',
-    '计划到货时间',
-    '实际发货时间',
-    '实发数量',
-    '剩余未发数量',
-    '海运车架号（集装箱）',
-    '位置',
-    '集装箱号',
-    '空运单号',
-    '评价',
-    '发货集装箱号/空运单号/车架号',
-    '备注',
-  ],
+  '运输方式',
+  '分类',
+  '预计发运时间',
+  '采购经理',
+  '供应商',
+  '计划到货时间',
+  '实际发货时间',
+  '实发数量',
+  '剩余未发数量',
+  '海运车架号（集装箱）',
+  '位置',
+  '集装箱号',
+  '空运单号',
+  '评价',
+  '发货集装箱号/空运单号/车架号',
+  '备注',
 ];
 const HEADER_TO_FIELD: Record<string, keyof OpenPoExtraFields> = {
   车架号: 'chassis',
@@ -107,32 +91,6 @@ const HEADER_TO_FIELD: Record<string, keyof OpenPoExtraFields> = {
   评价: 'evaluation',
   '发货集装箱号/空运单号/车架号': 'shippingTrackingMixed',
   备注: 'remarks',
-};
-const BASE_HEADER_ALIASES: Record<string, keyof OpenPoItem> = {
-  采购订单号: 'po_number',
-  po_number: 'po_number',
-  零件号: 'part',
-  part: 'part',
-  供应商编码: 'vendor',
-  vendor: 'vendor',
-  采购组: 'purchasinggroup',
-  purchasinggroup: 'purchasinggroup',
-  下单日期: 'orderdate',
-  orderdate: 'orderdate',
-  交期: 'deliverydate',
-  deliverydate: 'deliverydate',
-  订单数量: 'orderqty',
-  orderqty: 'orderqty',
-  收货数量: 'receivedqty',
-  receivedqty: 'receivedqty',
-  未清数量: 'openqty',
-  openqty: 'openqty',
-  英文描述: 'spras_en',
-  spras_en: 'spras_en',
-  中文描述: 'spras_zh',
-  spras_zh: 'spras_zh',
-  车架号: 'chassisnumber',
-  chassisnumber: 'chassisnumber',
 };
 const sanitizeDbKey = (value: string) => value.replace(/[.#$/[\]]/g, '_');
 const makeExtraKey = (poNumber: string, part: string) =>
@@ -252,6 +210,8 @@ export default function OpenPoVendor3060Page() {
   const [items, setItems] = useState<OpenPoItem[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [cancelled, setCancelled] = useState<Record<string, boolean>>({});
+  const [stockByPart, setStockByPart] = useState<Record<string, number>>({});
+  const [descByPart, setDescByPart] = useState<Record<string, { en: string; zh: string }>>({});
   const [lang, setLang] = useState<Lang>(getLang());
   const [purchaserFilter, setPurchaserFilter] = useState<PurchaserFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -271,12 +231,32 @@ export default function OpenPoVendor3060Page() {
 
   useEffect(() => {
     Promise.all([
-      get(ref(database, 'app_admin/openpo_vendor_3060_upload/items')),
+      get(ref(database, 'production_report/open_po/items')),
+      FirebaseService.getAllParts(),
       get(ref(database, 'app_admin/purchasing_group_mapping')),
       get(ref(database, 'app_admin/cancelled_openpo')),
       get(ref(database, 'app_admin/openpo_vendor_3060_extra')),
-    ]).then(([openSnap, mapSnap, cancelSnap, extraSnap]) => {
+    ]).then(([openSnap, allParts, mapSnap, cancelSnap, extraSnap]) => {
       setItems(Object.values((openSnap.val() || {}) as Record<string, OpenPoItem>));
+      const stockMap = Object.entries(allParts || {}).reduce<Record<string, number>>((acc, [material, part]) => {
+        const key = String(material || '').trim();
+        if (!key) return acc;
+        const partData = part as { Current_Stock_Qty?: number };
+        acc[key] = Number(partData.Current_Stock_Qty || 0);
+        return acc;
+      }, {});
+      const partDescMap = Object.entries(allParts || {}).reduce<Record<string, { en: string; zh: string }>>((acc, [material, part]) => {
+        const key = String(material || '').trim();
+        if (!key) return acc;
+        const partData = part as { SPRAS_EN?: string; SPRAS_ZH?: string };
+        acc[key] = {
+          en: String(partData.SPRAS_EN || ''),
+          zh: String(partData.SPRAS_ZH || ''),
+        };
+        return acc;
+      }, {});
+      setStockByPart(stockMap);
+      setDescByPart(partDescMap);
       setMapping((mapSnap.val() || {}) as Record<string, string>);
       setCancelled((cancelSnap.val() || {}) as Record<string, boolean>);
       setExtraByPo((extraSnap.val() || {}) as Record<string, OpenPoExtraFields>);
@@ -386,7 +366,7 @@ export default function OpenPoVendor3060Page() {
       mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-',
       r.part || '-',
       r.spras_en || r.description || '-',
-      r.spras_zh || '-',
+      descByPart[String(r.part || '').trim()]?.zh || r.spras_zh || '-',
       formatDate(r.orderdate),
       formatDate(r.deliverydate),
       String(r.orderqty || 0),
@@ -415,25 +395,14 @@ export default function OpenPoVendor3060Page() {
   };
 
   const downloadUploadTemplate = () => {
-      const rows = filtered.map((row) => {
-        const poNumber = String(row.po_number || '').trim();
-        const part = String(row.part || '').trim();
-        const extra = extraByPo[makeExtraKey(poNumber, part)] || extraByPo[poNumber] || {};
-        return [
+    const rows = filtered.map((row) => {
+      const poNumber = String(row.po_number || '').trim();
+      const part = String(row.part || '').trim();
+      const extra = extraByPo[makeExtraKey(poNumber, part)] || extraByPo[poNumber] || {};
+      return [
         `${poNumber}+${part}`,
         poNumber,
         part,
-        row.vendor || '',
-        row.purchasinggroup || '',
-        row.orderdate || '',
-        row.deliverydate || '',
-        row.orderqty || '',
-        row.receivedqty || '',
-        row.openqty || '',
-        row.spras_en || row.description || '',
-        row.spras_zh || '',
-        row.chassisnumber || '',
-        cancelled[keyOf(row)] ? 'YES' : 'NO',
         extra.chassis || '',
         extra.shippingMethod || '',
         extra.category || '',
@@ -477,8 +446,8 @@ export default function OpenPoVendor3060Page() {
       };
       const headers = parseCsvLine(headerLine);
       const keyIdx = headers.indexOf(TEMPLATE_PK_HEADER);
-      const poIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[h] === 'po_number');
-      const partIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[h] === 'part');
+      const poIdx = headers.indexOf('采购订单号');
+      const partIdx = headers.indexOf('零件号');
       if (keyIdx === -1 && (poIdx === -1 || partIdx === -1)) {
         alert(
           lang === 'zh'
@@ -488,16 +457,7 @@ export default function OpenPoVendor3060Page() {
         return;
       }
 
-      const prevItemsByKey = items.reduce<Record<string, OpenPoItem>>((acc, row) => {
-        const po = String(row.po_number || '').trim();
-        const part = String(row.part || '').trim();
-        if (!po || !part) return acc;
-        acc[makeExtraKey(po, part)] = row;
-        return acc;
-      }, {});
-      const rowMap: Record<string, OpenPoItem> = { ...prevItemsByKey };
       const updatedLocal: Record<string, OpenPoExtraFields> = {};
-      const cancelledUpdates: Record<string, boolean> = {};
       const dbPromises: Promise<void>[] = [];
 
       dataLines.forEach((line) => {
@@ -514,26 +474,6 @@ export default function OpenPoVendor3060Page() {
         }
         if (!poNumber || !part) return;
         const extraKey = makeExtraKey(poNumber, part);
-        const yesNo = (v: string) => ['yes', 'y', 'true', '1'].includes(String(v || '').trim().toLowerCase());
-        const current = prevItemsByKey[extraKey] || {};
-        const rowItem: OpenPoItem = { ...current, po_number: poNumber, part };
-        headers.forEach((header, idx) => {
-          const baseField = BASE_HEADER_ALIASES[header];
-          if (!baseField || baseField === 'po_number' || baseField === 'part') return;
-          const raw = String(cells[idx] ?? '').trim();
-          if (raw === '') return;
-          if (baseField === 'orderqty' || baseField === 'receivedqty' || baseField === 'openqty') {
-            const num = Number(raw);
-            if (!Number.isNaN(num)) (rowItem[baseField] as number) = num;
-            return;
-          }
-          (rowItem[baseField] as string) = raw;
-        });
-        rowMap[extraKey] = rowItem;
-        const cancelledIdx = headers.indexOf('是否取消');
-        if (cancelledIdx !== -1 && yesNo(String(cells[cancelledIdx] || ''))) {
-          cancelledUpdates[keyOf(rowItem)] = true;
-        }
         const patch: Partial<OpenPoExtraFields> = {};
         headers.forEach((header, idx) => {
           const field = HEADER_TO_FIELD[header];
@@ -546,14 +486,8 @@ export default function OpenPoVendor3060Page() {
         dbPromises.push(update(ref(database, `app_admin/openpo_vendor_3060_extra/${extraKey}`), { part, ...patch }));
       });
 
-      if (Object.keys(rowMap).length) {
-        await set(ref(database, 'app_admin/openpo_vendor_3060_upload/items'), rowMap);
-        if (Object.keys(cancelledUpdates).length) {
-          await update(ref(database, 'app_admin/cancelled_openpo'), cancelledUpdates);
-          setCancelled((prev) => ({ ...prev, ...cancelledUpdates }));
-        }
-        if (dbPromises.length) await Promise.all(dbPromises);
-        setItems(Object.values(rowMap));
+      if (dbPromises.length) {
+        await Promise.all(dbPromises);
         setExtraByPo((prev) => ({ ...prev, ...updatedLocal }));
       }
       alert(
@@ -791,7 +725,7 @@ export default function OpenPoVendor3060Page() {
 
                         {/* AU Stock */}
                         <td className="px-3 py-2 text-right tabular-nums text-xs">
-                          -
+                          {displayNumber(stockByPart[String(r.part || '').trim()] || 0)}
                         </td>
 
                         {/* Description */}
@@ -801,7 +735,7 @@ export default function OpenPoVendor3060Page() {
                               {r.spras_en || r.description || '-'}
                             </div>
                             <div className="text-[10px] leading-snug text-gray-400">
-                              {r.spras_zh || ''}
+                              {descByPart[String(r.part || '').trim()]?.zh || r.spras_zh || ''}
                             </div>
                           </div>
                         </td>
