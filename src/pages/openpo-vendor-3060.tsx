@@ -450,7 +450,7 @@ export default function OpenPoVendor3060Page() {
       'Description ZH (By Part)', 'Order Date', 'Delivery Date', 'Order Qty',
       'Received Qty', 'Open Qty', 'Cancelled',
     ];
-    const rows = filtered.map((r) => [
+    const rows = visibleRows.map((r) => [
       r.po_number || '-',
       mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-',
       r.part || '-',
