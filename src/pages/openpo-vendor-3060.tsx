@@ -10,6 +10,7 @@ import { getLang, t, type Lang } from '@/lib/i18n';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 type OpenPoItem = {
+  sapMatched?: boolean;
   po_number?: string;
   part?: string;
   vendor?: string;
@@ -276,6 +277,8 @@ export default function OpenPoVendor3060Page() {
   // Set of expanded row keys
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
+  const [wrongCodeNotes, setWrongCodeNotes] = useState<Record<string, string>>({});
+  const [wrongCodeFilter, setWrongCodeFilter] = useState<'all' | 'wrongOnly'>('all');
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const mergeWithOpenPo = (
     uploaded: Record<string, OpenPoItem>,
@@ -292,6 +295,7 @@ export default function OpenPoVendor3060Page() {
       const po = String(row.po_number || '').trim();
       const part = String(row.part || '').trim();
       const matched = openPoByKey[makeExtraKey(po, part)] || {};
+      const sapMatched = Boolean(Object.keys(matched).length);
       return {
         ...matched,
         ...row,
@@ -309,6 +313,7 @@ export default function OpenPoVendor3060Page() {
         spras_en: matched.spras_en || matched.description || row.spras_en || row.description,
         spras_zh: matched.spras_zh || row.spras_zh,
         chassisnumber: matched.chassisnumber || row.chassisnumber,
+        sapMatched,
       } as OpenPoItem;
     });
   };
@@ -327,7 +332,8 @@ export default function OpenPoVendor3060Page() {
       get(ref(database, 'app_admin/purchasing_group_mapping')),
       get(ref(database, 'app_admin/cancelled_openpo')),
       get(ref(database, 'app_admin/openpo_vendor_3060_extra')),
-    ]).then(([uploadSnap, prodOpenSnap, allParts, mapSnap, cancelSnap, extraSnap]) => {
+      get(ref(database, 'app_admin/openpo_vendor_3060_wrong_code_notes')),
+    ]).then(([uploadSnap, prodOpenSnap, allParts, mapSnap, cancelSnap, extraSnap, wrongSnap]) => {
       const uploaded = (uploadSnap.val() || {}) as Record<string, OpenPoItem>;
       const prodOpen = (prodOpenSnap.val() || {}) as Record<string, OpenPoItem>;
       setItems(mergeWithOpenPo(uploaded, prodOpen));
@@ -342,6 +348,7 @@ export default function OpenPoVendor3060Page() {
       setMapping((mapSnap.val() || {}) as Record<string, string>);
       setCancelled((cancelSnap.val() || {}) as Record<string, boolean>);
       setExtraByPo((extraSnap.val() || {}) as Record<string, OpenPoExtraFields>);
+      setWrongCodeNotes((wrongSnap.val() || {}) as Record<string, string>);
     });
   }, []);
 
@@ -378,10 +385,7 @@ export default function OpenPoVendor3060Page() {
     void initExtras();
   }, [items, extraByPo]);
 
-  const vendorFiltered = useMemo(
-    () => items.filter((i) => String(i.vendor || '').replace(/^0+/, '').trim() === '3060'),
-    [items],
-  );
+  const vendorFiltered = useMemo(() => items, [items]);
 
   const filtered = useMemo(() => {
     if (purchaserFilter === 'all') return vendorFiltered;
@@ -413,9 +417,13 @@ export default function OpenPoVendor3060Page() {
     if (shippingStatusFilter === 'all') return searchedRows;
     return searchedRows.filter((row) => shippingStatusOf(row) === shippingStatusFilter);
   }, [searchedRows, shippingStatusFilter, extraByPo, searchKeyword]);
-  const activeRows = useMemo(() => statusFilteredRows.filter((row) => !cancelled[keyOf(row)]), [statusFilteredRows, cancelled]);
-  const cancelledRows = useMemo(() => statusFilteredRows.filter((row) => cancelled[keyOf(row)]), [statusFilteredRows, cancelled]);
-  const visibleRows = searchKeyword.trim() ? statusFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
+  const wrongFilteredRows = useMemo(() => {
+    if (wrongCodeFilter === 'all') return statusFilteredRows;
+    return statusFilteredRows.filter((row) => !!wrongCodeNotes[makeExtraKey(String(row.po_number || ''), String(row.part || ''))]);
+  }, [statusFilteredRows, wrongCodeFilter, wrongCodeNotes]);
+  const activeRows = useMemo(() => wrongFilteredRows.filter((row) => !cancelled[keyOf(row)]), [wrongFilteredRows, cancelled]);
+  const cancelledRows = useMemo(() => wrongFilteredRows.filter((row) => cancelled[keyOf(row)]), [wrongFilteredRows, cancelled]);
+  const visibleRows = searchKeyword.trim() ? wrongFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
 
   const totalOpenQty = useMemo(() => visibleRows.reduce((sum, item) => sum + Number(item.openqty || 0), 0), [visibleRows]);
   const openPoNumber = useMemo(() => new Set(visibleRows.map((x) => x.po_number).filter(Boolean)).size, [visibleRows]);
@@ -427,7 +435,7 @@ export default function OpenPoVendor3060Page() {
     return visibleRows.slice(start, start + PAGE_SIZE);
   }, [visibleRows, currentPage]);
 
-  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter, searchKeyword]);
+  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter, searchKeyword, wrongCodeFilter]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -443,21 +451,16 @@ export default function OpenPoVendor3060Page() {
   const reportWrongCode = async (row: OpenPoItem) => {
     const poNumber = String(row.po_number || '').trim();
     const part = String(row.part || '').trim();
+    const noteKey = makeExtraKey(poNumber, part);
+    const current = wrongCodeNotes[noteKey] || '';
     const reason = window.prompt(
-      lang === 'zh' ? '请输入错误说明（可选）' : 'Please enter issue details (optional).',
-      '',
+      lang === 'zh' ? '请输入错误料号批注（留空可清除）' : 'Please enter wrong-code note (leave empty to clear).',
+      current,
     );
-    const payload = {
-      po_number: poNumber,
-      part,
-      reason: String(reason || '').trim(),
-      reportedAt: new Date().toISOString(),
-    };
-    await set(
-      ref(database, `app_admin/openpo_vendor_3060_wrong_code_reports/${makeExtraKey(poNumber, part)}_${Date.now()}`),
-      payload,
-    );
-    window.alert(lang === 'zh' ? '已提交 Wrong Code 报告' : 'Wrong code report submitted.');
+    if (reason === null) return;
+    const note = String(reason || '').trim();
+    await set(ref(database, `app_admin/openpo_vendor_3060_wrong_code_notes/${noteKey}`), note);
+    setWrongCodeNotes((prev) => ({ ...prev, [noteKey]: note }));
   };
 
   const bulkCancelByPo = async () => {
@@ -798,6 +801,12 @@ export default function OpenPoVendor3060Page() {
       )}
       {viewTab === 'active' && (
         <div className="flex items-center gap-2">
+          <Button variant={wrongCodeFilter === 'all' ? 'default' : 'outline'} onClick={() => setWrongCodeFilter('all')}>
+            {lang === 'zh' ? '错误料号：全部' : 'Wrong Code: All'}
+          </Button>
+          <Button variant={wrongCodeFilter === 'wrongOnly' ? 'default' : 'outline'} onClick={() => setWrongCodeFilter('wrongOnly')}>
+            {lang === 'zh' ? '仅错误料号' : 'Wrong Code Only'}
+          </Button>
           <Button variant={shippingStatusFilter === 'all' ? 'default' : 'outline'} onClick={() => setShippingStatusFilter('all')}>
             {lang === 'zh' ? '发货状态：全部' : 'Shipping: All'}
           </Button>
@@ -846,7 +855,7 @@ export default function OpenPoVendor3060Page() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card>
           <CardHeader><CardTitle>{t(lang, 'lineCount')}</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold">{openPoNumber}</CardContent>
@@ -854,6 +863,10 @@ export default function OpenPoVendor3060Page() {
         <Card>
           <CardHeader><CardTitle>{t(lang, 'totalOpenQty')}</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold">{displayNumber(totalOpenQty)}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>{lang === 'zh' ? '错误料号条数' : 'Wrong Code Rows'}</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold text-rose-600">{Object.values(wrongCodeNotes).filter(Boolean).length}</CardContent>
         </Card>
       </div>
 
@@ -904,13 +917,15 @@ export default function OpenPoVendor3060Page() {
                   const shippingStatus = shippingStatusOf(r);
                   const isExpanded = expandedRows.has(rowKey);
                   const filled = filledCount(extra);
+                  const wrongCodeNote = wrongCodeNotes[makeExtraKey(poNumber, r.part || '')] || '';
+                  const sapMissing = r.sapMatched === false;
 
                   return (
                     <>
                       {/* Main row */}
                       <tr
                         key={rowKey}
-                        className={`transition-colors ${shippingStatus === 'intransit' ? 'bg-emerald-50/40 hover:bg-emerald-50/60' : 'bg-amber-50/30 hover:bg-amber-50/50'} ${cancelledRow ? 'opacity-40' : ''} ${isExpanded ? 'ring-1 ring-blue-200' : ''}`}
+                        className={`transition-colors ${sapMissing ? 'bg-rose-50/60 hover:bg-rose-50/80' : (shippingStatus === 'intransit' ? 'bg-emerald-50/40 hover:bg-emerald-50/60' : 'bg-amber-50/30 hover:bg-amber-50/50')} ${cancelledRow ? 'opacity-40' : ''} ${isExpanded ? 'ring-1 ring-blue-200' : ''}`}
                       >
                         {/* Expand toggle */}
                         <td className="sticky left-0 z-10 bg-inherit px-2 py-2 w-8">
@@ -975,10 +990,10 @@ export default function OpenPoVendor3060Page() {
                         <td className="px-3 py-2 max-w-[240px]">
                           <div className="space-y-0.5">
                             <div className="text-xs leading-snug text-gray-800 line-clamp-2">
-                              {r.spras_en || r.description || '-'}
+                              {sapMissing ? (lang === 'zh' ? '无相应SAP Data' : 'No matching SAP Data') : (r.spras_en || r.description || '-')}
                             </div>
                             <div className="text-[10px] leading-snug text-gray-400">
-                              {r.spras_zh || ''}
+                              {sapMissing ? '' : (r.spras_zh || '')}
                             </div>
                           </div>
                         </td>
@@ -1032,8 +1047,8 @@ export default function OpenPoVendor3060Page() {
                                 ? (lang === 'zh' ? '恢复' : 'Undo')
                                 : 'Cancel'}
                             </Button>
-                            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => reportWrongCode(r)}>
-                              {lang === 'zh' ? 'Wrong Code（错误料号）' : 'Wrong Code'}
+                            <Button variant="outline" size="sm" className={`h-7 text-xs ${wrongCodeNote ? 'border-rose-300 text-rose-600' : ''}`} onClick={() => reportWrongCode(r)}>
+                              {wrongCodeNote || (lang === 'zh' ? 'Wrong Code（错误料号）' : 'Wrong Code')}
                             </Button>
                           </div>
                         </td>
