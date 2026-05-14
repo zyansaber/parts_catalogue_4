@@ -269,6 +269,8 @@ export default function OpenPoVendor3060Page() {
   const [currentPage, setCurrentPage] = useState(1);
   const [viewTab, setViewTab] = useState<ViewTab>('active');
   const [shippingStatusFilter, setShippingStatusFilter] = useState<ShippingStatusFilter>('all');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchKeyword, setSearchKeyword] = useState('');
   const [bulkPoInput, setBulkPoInput] = useState('');
   const [extraByPo, setExtraByPo] = useState<Record<string, OpenPoExtraFields>>({});
   // Set of expanded row keys
@@ -390,6 +392,15 @@ export default function OpenPoVendor3060Page() {
       return true;
     });
   }, [vendorFiltered, purchaserFilter, mapping]);
+  const searchedRows = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase();
+    if (!keyword) return filtered;
+    return vendorFiltered.filter((row) => {
+      const po = String(row.po_number || '').toLowerCase();
+      const part = String(row.part || '').toLowerCase();
+      return po.includes(keyword) || part.includes(keyword);
+    });
+  }, [filtered, searchKeyword, vendorFiltered]);
 
   const keyOf = (row: OpenPoItem) => `${row.po_number || 'po'}_${row.part || 'part'}`;
   const shippingStatusOf = (row: OpenPoItem): Exclude<ShippingStatusFilter, 'all'> => {
@@ -398,12 +409,13 @@ export default function OpenPoVendor3060Page() {
     return extra.actualShipmentDate ? 'intransit' : 'notshipped';
   };
   const statusFilteredRows = useMemo(() => {
-    if (shippingStatusFilter === 'all') return filtered;
-    return filtered.filter((row) => shippingStatusOf(row) === shippingStatusFilter);
-  }, [filtered, shippingStatusFilter, extraByPo]);
+    if (searchKeyword.trim()) return searchedRows;
+    if (shippingStatusFilter === 'all') return searchedRows;
+    return searchedRows.filter((row) => shippingStatusOf(row) === shippingStatusFilter);
+  }, [searchedRows, shippingStatusFilter, extraByPo, searchKeyword]);
   const activeRows = useMemo(() => statusFilteredRows.filter((row) => !cancelled[keyOf(row)]), [statusFilteredRows, cancelled]);
   const cancelledRows = useMemo(() => statusFilteredRows.filter((row) => cancelled[keyOf(row)]), [statusFilteredRows, cancelled]);
-  const visibleRows = viewTab === 'cancelled' ? cancelledRows : activeRows;
+  const visibleRows = searchKeyword.trim() ? statusFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
 
   const totalOpenQty = useMemo(() => visibleRows.reduce((sum, item) => sum + Number(item.openqty || 0), 0), [visibleRows]);
   const openPoNumber = useMemo(() => new Set(visibleRows.map((x) => x.po_number).filter(Boolean)).size, [visibleRows]);
@@ -415,7 +427,7 @@ export default function OpenPoVendor3060Page() {
     return visibleRows.slice(start, start + PAGE_SIZE);
   }, [visibleRows, currentPage]);
 
-  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter]);
+  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter, searchKeyword]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -426,6 +438,26 @@ export default function OpenPoVendor3060Page() {
     const next = !cancelled[key];
     setCancelled((prev) => ({ ...prev, [key]: next }));
     await update(ref(database, 'app_admin/cancelled_openpo'), { [key]: next });
+  };
+
+  const reportWrongCode = async (row: OpenPoItem) => {
+    const poNumber = String(row.po_number || '').trim();
+    const part = String(row.part || '').trim();
+    const reason = window.prompt(
+      lang === 'zh' ? '请输入错误说明（可选）' : 'Please enter issue details (optional).',
+      '',
+    );
+    const payload = {
+      po_number: poNumber,
+      part,
+      reason: String(reason || '').trim(),
+      reportedAt: new Date().toISOString(),
+    };
+    await set(
+      ref(database, `app_admin/openpo_vendor_3060_wrong_code_reports/${makeExtraKey(poNumber, part)}_${Date.now()}`),
+      payload,
+    );
+    window.alert(lang === 'zh' ? '已提交 Wrong Code 报告' : 'Wrong code report submitted.');
   };
 
   const bulkCancelByPo = async () => {
@@ -778,6 +810,27 @@ export default function OpenPoVendor3060Page() {
         </div>
       )}
 
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          className="h-10 w-full rounded-md border border-gray-200 px-3 text-sm md:w-80"
+          placeholder={lang === 'zh' ? '搜索 PO号 或 物料号码' : 'Search PO No. or Part No.'}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') setSearchKeyword(searchInput.trim());
+          }}
+        />
+        <Button onClick={() => setSearchKeyword(searchInput.trim())}>
+          {lang === 'zh' ? '搜索' : 'Search'}
+        </Button>
+        {searchKeyword && (
+          <Button variant="outline" onClick={() => { setSearchInput(''); setSearchKeyword(''); }}>
+            {lang === 'zh' ? '清除' : 'Clear'}
+          </Button>
+        )}
+      </div>
+
       {/* Pagination info */}
       <div className="flex items-center gap-3">
         {viewTab === 'active' && (
@@ -973,11 +1026,16 @@ export default function OpenPoVendor3060Page() {
 
                         {/* Action */}
                         <td className="px-3 py-2">
-                          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => toggleCancel(r)}>
-                            {cancelledRow
-                              ? (lang === 'zh' ? '恢复' : 'Undo')
-                              : 'Cancel'}
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => toggleCancel(r)}>
+                              {cancelledRow
+                                ? (lang === 'zh' ? '恢复' : 'Undo')
+                                : 'Cancel'}
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => reportWrongCode(r)}>
+                              {lang === 'zh' ? 'Wrong Code（错误料号）' : 'Wrong Code'}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
 
