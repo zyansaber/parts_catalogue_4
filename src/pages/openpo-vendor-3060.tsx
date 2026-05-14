@@ -50,8 +50,9 @@ type OpenPoExtraFields = {
 };
 
 type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
-type ViewTab = 'active' | 'cancelled' | 'ageing';
+type ViewTab = 'active' | 'cancelled' | 'dashboard';
 type ShippingStatusFilter = 'all' | 'intransit' | 'notshipped';
+type ShippingMethodFilter = 'all' | 'air freight' | 'sea freight';
 
 const PAGE_SIZE = 30;
 const TEMPLATE_PK_HEADER = 'po_number+po_item+part';
@@ -279,6 +280,8 @@ export default function OpenPoVendor3060Page() {
   const [currentPage, setCurrentPage] = useState(1);
   const [viewTab, setViewTab] = useState<ViewTab>('active');
   const [shippingStatusFilter, setShippingStatusFilter] = useState<ShippingStatusFilter>('all');
+  const [shippingMethodFilter, setShippingMethodFilter] = useState<ShippingMethodFilter>('all');
+  const [dashAirExpanded, setDashAirExpanded] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [bulkPoInput, setBulkPoInput] = useState('');
@@ -433,9 +436,25 @@ export default function OpenPoVendor3060Page() {
     if (!wrongCodeOnly) return statusFilteredRows;
     return statusFilteredRows.filter((row) => !!wrongCodeNotes[makeExtraKey(String(row.po_number || ''), String(row.po_item || ''), String(row.part || ''))]);
   }, [statusFilteredRows, wrongCodeOnly, wrongCodeNotes]);
-  const activeRows = useMemo(() => wrongFilteredRows.filter((row) => !cancelled[keyOf(row)]), [wrongFilteredRows, cancelled]);
-  const cancelledRows = useMemo(() => wrongFilteredRows.filter((row) => cancelled[keyOf(row)]), [wrongFilteredRows, cancelled]);
-  const visibleRows = searchKeyword.trim() ? wrongFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
+
+  const methodFilteredRows = useMemo(() => {
+    if (shippingMethodFilter === 'all') return wrongFilteredRows;
+    return wrongFilteredRows.filter((row) => {
+      const po = String(row.po_number || '');
+      const extra = extraByPo[makeExtraKey(po, String(row.po_item || ''), row.part || '')] || extraByPo[po] || {};
+      return (extra.shippingMethod || 'sea freight') === shippingMethodFilter;
+    });
+  }, [wrongFilteredRows, shippingMethodFilter, extraByPo]);
+
+  const activeRows = useMemo(() => methodFilteredRows.filter((row) => !cancelled[keyOf(row)]), [methodFilteredRows, cancelled]);
+  const cancelledRows = useMemo(() => methodFilteredRows.filter((row) => cancelled[keyOf(row)]), [methodFilteredRows, cancelled]);
+
+  // Dashboard rows: completely independent of all filters — just non-cancelled items
+  const allActiveItems = useMemo(
+    () => items.filter((row) => !cancelled[keyOf(row)]),
+    [items, cancelled],
+  );
+  const visibleRows = searchKeyword.trim() ? methodFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
 
   const totalOpenQty = useMemo(() => visibleRows.reduce((sum, item) => sum + Number(item.openqty || 0), 0), [visibleRows]);
   const openPoNumber = useMemo(() => new Set(visibleRows.map((x) => x.po_number).filter(Boolean)).size, [visibleRows]);
@@ -456,8 +475,21 @@ export default function OpenPoVendor3060Page() {
     const now = new Date();
     return Math.max(0, Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)));
   };
-  const unshippedRowsForAging = useMemo(() => activeRows.filter((row) => shippingStatusOf(row) === 'notshipped'), [activeRows, extraByPo]);
-  const inTransitRowsForAging = useMemo(() => activeRows.filter((row) => shippingStatusOf(row) === 'intransit'), [activeRows, extraByPo]);
+  const unshippedRowsForAging = useMemo(() => allActiveItems.filter((row) => shippingStatusOf(row) === 'notshipped'), [allActiveItems, extraByPo]);
+  const inTransitRowsForAging = useMemo(() => allActiveItems.filter((row) => shippingStatusOf(row) === 'intransit'), [allActiveItems, extraByPo]);
+  const dashAirRows = useMemo(() => allActiveItems.filter((row) => {
+    const po = String(row.po_number || '');
+    const extra = extraByPo[makeExtraKey(po, String(row.po_item || ''), row.part || '')] || extraByPo[po] || {};
+    return (extra.shippingMethod || 'sea freight') === 'air freight';
+  }).map((row) => {
+    const po = String(row.po_number || '');
+    const extra = extraByPo[makeExtraKey(po, String(row.po_item || ''), row.part || '')] || extraByPo[po] || {};
+    const status = shippingStatusOf(row);
+    const agingDays = status === 'intransit'
+      ? (daysSince(extra.actualShipmentDate) ?? daysSince(row.orderdate) ?? 0)
+      : (daysSince(row.orderdate) ?? 0);
+    return { row, extra, status, agingDays };
+  }).sort((a, b) => b.agingDays - a.agingDays), [allActiveItems, extraByPo]);
   const unshippedAvgAgingDays = useMemo(() => {
     const arr = unshippedRowsForAging.map((r) => daysSince(r.orderdate)).filter((v): v is number => v !== null);
     return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
@@ -503,7 +535,7 @@ export default function OpenPoVendor3060Page() {
     return visibleRows.slice(start, start + PAGE_SIZE);
   }, [visibleRows, currentPage]);
 
-  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter, searchKeyword, wrongCodeOnly]);
+  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter, shippingMethodFilter, searchKeyword, wrongCodeOnly]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -869,10 +901,10 @@ export default function OpenPoVendor3060Page() {
         </Button>
         <Button
           className="h-8 rounded-md px-4 text-sm"
-          variant={viewTab === 'ageing' ? 'default' : 'ghost'}
-          onClick={() => setViewTab('ageing')}
+          variant={viewTab === 'dashboard' ? 'default' : 'ghost'}
+          onClick={() => setViewTab('dashboard')}
         >
-          {lang === 'zh' ? 'Ageing 看板' : 'Ageing Dashboard'}
+          {lang === 'zh' ? '看板' : 'Dashboard'}
         </Button>
       </div>
 
@@ -896,18 +928,36 @@ export default function OpenPoVendor3060Page() {
         </div>
       )}
       {viewTab === 'active' && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant={wrongCodeOnly ? 'default' : 'outline'} onClick={() => setWrongCodeOnly((v) => !v)}>
             {lang === 'zh' ? '仅错误料号' : 'Wrong Code Only'}
           </Button>
+          <span className="h-5 w-px bg-gray-200" />
           <Button variant={shippingStatusFilter === 'all' ? 'default' : 'outline'} onClick={() => setShippingStatusFilter('all')}>
-            {lang === 'zh' ? '发货状态：全部' : 'Shipping: All'}
+            {lang === 'zh' ? '发货状态：全部' : 'Status: All'}
           </Button>
           <Button variant={shippingStatusFilter === 'intransit' ? 'default' : 'outline'} onClick={() => setShippingStatusFilter('intransit')}>
-            {lang === 'zh' ? '在途 (In Transit)' : 'In Transit'}
+            {lang === 'zh' ? '在途' : 'In Transit'}
           </Button>
           <Button variant={shippingStatusFilter === 'notshipped' ? 'default' : 'outline'} onClick={() => setShippingStatusFilter('notshipped')}>
-            {lang === 'zh' ? '未发货 (Not Shipped)' : 'Not Shipped'}
+            {lang === 'zh' ? '未发货' : 'Not Shipped'}
+          </Button>
+          <span className="h-5 w-px bg-gray-200" />
+          <Button variant={shippingMethodFilter === 'all' ? 'default' : 'outline'} onClick={() => setShippingMethodFilter('all')}>
+            {lang === 'zh' ? '运输方式：全部' : 'Method: All'}
+          </Button>
+          <Button
+            className={shippingMethodFilter === 'air freight' ? '' : ''}
+            variant={shippingMethodFilter === 'air freight' ? 'default' : 'outline'}
+            onClick={() => setShippingMethodFilter('air freight')}
+          >
+            ✈ {lang === 'zh' ? '空运' : 'Air Freight'}
+          </Button>
+          <Button
+            variant={shippingMethodFilter === 'sea freight' ? 'default' : 'outline'}
+            onClick={() => setShippingMethodFilter('sea freight')}
+          >
+            🚢 {lang === 'zh' ? '海运' : 'Sea Freight'}
           </Button>
         </div>
       )}
@@ -934,6 +984,7 @@ export default function OpenPoVendor3060Page() {
       </div>
 
       {/* Pagination info */}
+      {viewTab !== 'dashboard' && (
       <div className="flex items-center gap-3">
         {viewTab === 'active' && (
           <Button variant={purchaserFilter === 'all' ? 'default' : 'outline'} onClick={() => setPurchaserFilter('all')}>
@@ -946,6 +997,7 @@ export default function OpenPoVendor3060Page() {
             : `Page ${currentPage} of ${totalPages} (${PAGE_SIZE} rows/page)`}
         </span>
       </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -983,43 +1035,70 @@ export default function OpenPoVendor3060Page() {
         </Card>
       </div>
 
-      {viewTab === 'ageing' ? (
-        <div className="space-y-6">
-          {/* KPI cards — same grid as main tab */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Card className="border-amber-200 bg-amber-50/40">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold uppercase tracking-wide text-amber-700">
-                  {lang === 'zh' ? '未发货数量' : 'Not Shipped'}
+      {viewTab === 'dashboard' ? (
+        <div className="space-y-5">
+          {/* Disclaimer — independent of filters */}
+          <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-4 py-2 text-xs text-blue-600">
+            <span className="font-semibold">ⓘ</span>
+            <span>{lang === 'zh' ? '看板数据不受上方筛选条件影响，显示所有未取消订单。' : 'Dashboard data is independent of all filters above — shows all non-cancelled orders.'}</span>
+          </div>
+
+          {/* KPI row — 4 cards matching main tab layout */}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Card className="border-0 bg-gradient-to-br from-amber-50 to-orange-50 shadow-sm">
+              <CardHeader className="pb-1 pt-4">
+                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+                  {lang === 'zh' ? '未发货' : 'Not Shipped'}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-4xl font-bold tabular-nums text-amber-600">{unshippedRowsForAging.length.toLocaleString()}</div>
-                <div className="mt-1 text-xs text-amber-600/70">
-                  {lang === 'zh'
-                    ? `平均 Ageing：${unshippedAvgAgingDays} 天（下单日期 → 今天）`
-                    : `Avg ageing: ${unshippedAvgAgingDays} days (order date → today)`}
+              <CardContent className="pb-4 pt-1">
+                <div className="text-3xl font-bold tabular-nums text-amber-600">{unshippedRowsForAging.length.toLocaleString()}</div>
+                <div className="mt-1 text-[11px] text-amber-500">
+                  {lang === 'zh' ? `均 ${unshippedAvgAgingDays}d` : `avg ${unshippedAvgAgingDays}d`}
                 </div>
               </CardContent>
             </Card>
-            <Card className="border-emerald-200 bg-emerald-50/40">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold uppercase tracking-wide text-emerald-700">
-                  {lang === 'zh' ? '在途数量' : 'In Transit'}
+            <Card className="border-0 bg-gradient-to-br from-emerald-50 to-teal-50 shadow-sm">
+              <CardHeader className="pb-1 pt-4">
+                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                  {lang === 'zh' ? '在途' : 'In Transit'}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-4xl font-bold tabular-nums text-emerald-600">{inTransitRowsForAging.length.toLocaleString()}</div>
-                <div className="mt-1 text-xs text-emerald-600/70">
-                  {lang === 'zh'
-                    ? `平均 Ageing：${inTransitAvgAgingDays} 天（实际发货时间 → 今天）`
-                    : `Avg ageing: ${inTransitAvgAgingDays} days (actual shipment date → today)`}
+              <CardContent className="pb-4 pt-1">
+                <div className="text-3xl font-bold tabular-nums text-emerald-600">{inTransitRowsForAging.length.toLocaleString()}</div>
+                <div className="mt-1 text-[11px] text-emerald-500">
+                  {lang === 'zh' ? `均 ${inTransitAvgAgingDays}d` : `avg ${inTransitAvgAgingDays}d`}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-0 bg-gradient-to-br from-purple-50 to-violet-50 shadow-sm">
+              <CardHeader className="pb-1 pt-4">
+                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-purple-600">
+                  ✈ {lang === 'zh' ? '空运订单' : 'Air Freight'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4 pt-1">
+                <div className="text-3xl font-bold tabular-nums text-purple-600">{dashAirRows.length.toLocaleString()}</div>
+                <div className="mt-1 text-[11px] text-purple-500">
+                  {lang === 'zh' ? '点击下方查看详情' : 'See detail below'}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-0 bg-gradient-to-br from-sky-50 to-blue-50 shadow-sm">
+              <CardHeader className="pb-1 pt-4">
+                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-sky-600">
+                  🚢 {lang === 'zh' ? '海运订单' : 'Sea Freight'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4 pt-1">
+                <div className="text-3xl font-bold tabular-nums text-sky-600">
+                  {(allActiveItems.length - dashAirRows.length).toLocaleString()}
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Ageing distribution bar chart */}
+          {/* Ageing bar chart */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-semibold">
@@ -1035,19 +1114,11 @@ export default function OpenPoVendor3060Page() {
                 const groupW = barW * 2 + 8;
                 const totalW = ageingBuckets.length * (groupW + gap) - gap;
                 const padL = 40;
-                const padB = 40;
                 const padT = 16;
-
                 const yTicks = [0, Math.round(maxVal * 0.25), Math.round(maxVal * 0.5), Math.round(maxVal * 0.75), maxVal];
-
                 return (
                   <div className="overflow-x-auto">
-                    <svg
-                      viewBox={`0 0 ${totalW + padL + 16} ${chartH + padB + padT}`}
-                      className="w-full max-w-2xl"
-                      style={{ minWidth: 320 }}
-                    >
-                      {/* Y grid lines + labels */}
+                    <svg viewBox={`0 0 ${totalW + padL + 16} ${chartH + 56}`} className="w-full max-w-2xl" style={{ minWidth: 320 }}>
                       {yTicks.map((tick) => {
                         const y = padT + chartH - (tick / maxVal) * chartH;
                         return (
@@ -1057,59 +1128,110 @@ export default function OpenPoVendor3060Page() {
                           </g>
                         );
                       })}
-
-                      {/* Bars */}
                       {ageingBuckets.map((bucket, i) => {
                         const x = padL + i * (groupW + gap);
                         const nsH = (bucket.notShipped / maxVal) * chartH;
                         const itH = (bucket.inTransit / maxVal) * chartH;
                         const nsY = padT + chartH - nsH;
                         const itY = padT + chartH - itH;
-                        const labelY = padT + chartH + 14;
                         return (
                           <g key={bucket.label}>
-                            {/* Not Shipped bar */}
                             <rect x={x} y={nsY} width={barW} height={nsH} rx="3" fill="#f59e0b" opacity="0.85" />
-                            {bucket.notShipped > 0 && (
-                              <text x={x + barW / 2} y={nsY - 4} textAnchor="middle" fontSize="10" fill="#92400e" fontWeight="600">
-                                {bucket.notShipped}
-                              </text>
-                            )}
-                            {/* In Transit bar */}
+                            {bucket.notShipped > 0 && <text x={x + barW / 2} y={nsY - 4} textAnchor="middle" fontSize="10" fill="#92400e" fontWeight="600">{bucket.notShipped}</text>}
                             <rect x={x + barW + 8} y={itY} width={barW} height={itH} rx="3" fill="#10b981" opacity="0.85" />
-                            {bucket.inTransit > 0 && (
-                              <text x={x + barW + 8 + barW / 2} y={itY - 4} textAnchor="middle" fontSize="10" fill="#064e3b" fontWeight="600">
-                                {bucket.inTransit}
-                              </text>
-                            )}
-                            {/* X label */}
-                            <text x={x + groupW / 2} y={labelY} textAnchor="middle" fontSize="11" fill="#6b7280" fontWeight="500">
-                              {bucket.label}
-                            </text>
+                            {bucket.inTransit > 0 && <text x={x + barW + 8 + barW / 2} y={itY - 4} textAnchor="middle" fontSize="10" fill="#064e3b" fontWeight="600">{bucket.inTransit}</text>}
+                            <text x={x + groupW / 2} y={padT + chartH + 14} textAnchor="middle" fontSize="11" fill="#6b7280" fontWeight="500">{bucket.label}</text>
                           </g>
                         );
                       })}
-
-                      {/* Axes */}
                       <line x1={padL} y1={padT} x2={padL} y2={padT + chartH} stroke="#d1d5db" strokeWidth="1" />
                       <line x1={padL} y1={padT + chartH} x2={padL + totalW} y2={padT + chartH} stroke="#d1d5db" strokeWidth="1" />
                     </svg>
-
-                    {/* Legend */}
-                    <div className="mt-3 flex items-center gap-4 text-xs">
-                      <div className="flex items-center gap-1.5">
-                        <span className="inline-block h-3 w-3 rounded-sm bg-amber-400" />
-                        <span className="text-gray-600">{lang === 'zh' ? '未发货' : 'Not Shipped'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="inline-block h-3 w-3 rounded-sm bg-emerald-500" />
-                        <span className="text-gray-600">{lang === 'zh' ? '在途' : 'In Transit'}</span>
-                      </div>
+                    <div className="mt-2 flex items-center gap-4 text-xs">
+                      <div className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-amber-400" /><span className="text-gray-600">{lang === 'zh' ? '未发货' : 'Not Shipped'}</span></div>
+                      <div className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-emerald-500" /><span className="text-gray-600">{lang === 'zh' ? '在途' : 'In Transit'}</span></div>
                     </div>
                   </div>
                 );
               })()}
             </CardContent>
+          </Card>
+
+          {/* Air Freight Detail Table */}
+          <Card className="border-purple-100">
+            <CardHeader
+              className="cursor-pointer select-none"
+              onClick={() => setDashAirExpanded((v) => !v)}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold text-purple-700">
+                  <span>✈</span>
+                  <span>{lang === 'zh' ? `空运订单 Ageing 明细（${dashAirRows.length} 条）` : `Air Freight Ageing Detail (${dashAirRows.length} items)`}</span>
+                </CardTitle>
+                <span className="text-xs text-purple-400">{dashAirExpanded ? '▲' : '▼'} {lang === 'zh' ? (dashAirExpanded ? '收起' : '展开') : (dashAirExpanded ? 'Collapse' : 'Expand')}</span>
+              </div>
+              <p className="mt-1 text-[11px] text-purple-400">
+                {lang === 'zh' ? '按 Ageing 天数降序排列（最旧在前）' : 'Sorted by ageing days descending (oldest first)'}
+              </p>
+            </CardHeader>
+            {dashAirExpanded && (
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[700px] text-xs">
+                    <thead>
+                      <tr className="border-b border-purple-100 bg-purple-50/60 text-[10px] font-semibold uppercase tracking-wider text-purple-600">
+                        <th className="px-3 py-2 whitespace-nowrap text-left">{lang === 'zh' ? 'PO号' : 'PO'}</th>
+                        <th className="px-3 py-2 whitespace-nowrap text-left">{lang === 'zh' ? '零件号' : 'Part'}</th>
+                        <th className="px-3 py-2 whitespace-nowrap text-left">{lang === 'zh' ? '车架号' : 'Chassis'}</th>
+                        <th className="px-3 py-2 min-w-[160px] text-left">{lang === 'zh' ? '描述' : 'Description'}</th>
+                        <th className="px-3 py-2 whitespace-nowrap text-left">{lang === 'zh' ? '下单日期' : 'Order Date'}</th>
+                        <th className="px-3 py-2 whitespace-nowrap text-right tabular-nums">{lang === 'zh' ? '开放数量' : 'Open Qty'}</th>
+                        <th className="px-3 py-2 whitespace-nowrap text-right tabular-nums">{lang === 'zh' ? 'Ageing 天数' : 'Ageing Days'}</th>
+                        <th className="px-3 py-2 whitespace-nowrap text-left">{lang === 'zh' ? '预计发运' : 'Est. Ship'}</th>
+                        <th className="px-3 py-2 whitespace-nowrap text-left">{lang === 'zh' ? '实际发货' : 'Actual Ship'}</th>
+                        <th className="px-3 py-2 whitespace-nowrap text-left">{lang === 'zh' ? '状态' : 'Status'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-purple-50">
+                      {dashAirRows.length === 0 ? (
+                        <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400">{lang === 'zh' ? '暂无空运订单' : 'No air freight orders'}</td></tr>
+                      ) : dashAirRows.map(({ row, extra, status, agingDays }) => {
+                        const ageColor = agingDays >= 14 ? 'text-rose-600 font-bold' : agingDays >= 7 ? 'text-amber-600 font-semibold' : 'text-gray-700';
+                        const ch = extra.chassis || row.chassisnumber;
+                        return (
+                          <tr key={keyOf(row)} className="hover:bg-purple-50/40 transition-colors">
+                            <td className="px-3 py-2 font-mono">{row.po_number || '-'}</td>
+                            <td className="px-3 py-2 font-mono">{row.part || '-'}</td>
+                            <td className="px-3 py-2 font-mono">
+                              {ch ? <span className="rounded bg-gray-100 px-1.5 py-0.5">{ch}</span> : <span className="text-gray-300">—</span>}
+                            </td>
+                            <td className="px-3 py-2 max-w-[200px]">
+                              <div className="line-clamp-2 leading-snug text-gray-800">{row.spras_en || row.description || '—'}</div>
+                              {row.spras_zh && <div className="text-[10px] text-gray-400">{row.spras_zh}</div>}
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap text-gray-600">{formatDate(row.orderdate)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums font-medium">{(row.openqty ?? 0).toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${agingDays >= 14 ? 'bg-rose-100 text-rose-700' : agingDays >= 7 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
+                                {agingDays}d
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap text-gray-600">{formatDate(extra.estimatedShipmentDate) || '—'}</td>
+                            <td className="px-3 py-2 whitespace-nowrap text-gray-600">{formatDate(extra.actualShipmentDate) || '—'}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${status === 'intransit' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${status === 'intransit' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                                {status === 'intransit' ? 'In Transit' : 'Not Shipped'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            )}
           </Card>
         </div>
       ) : (
@@ -1326,7 +1448,7 @@ export default function OpenPoVendor3060Page() {
       )}
 
       {/* Pagination */}
-      {viewTab !== 'ageing' && (
+      {viewTab !== 'dashboard' && (
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>
           {lang === 'zh' ? '上一页' : 'Previous'}
