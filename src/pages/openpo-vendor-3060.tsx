@@ -146,12 +146,9 @@ const normalizeHeader = (value: string) => String(value || '').trim().toLowerCas
 const normalizeDateForInput = (value: string) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const ymd = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-  if (ymd) return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
-  const dmy = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  const m = raw.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   return raw;
 };
 const makeExtraKey = (poNumber: string, poItem: string, part: string) =>
@@ -546,8 +543,8 @@ export default function OpenPoVendor3060Page() {
         part,
         row.vendor || '',
         row.purchasinggroup || '',
-        normalizeDateForInput(row.orderdate || ''),
-        normalizeDateForInput(row.deliverydate || ''),
+        row.orderdate || '',
+        row.deliverydate || '',
         row.orderqty || '',
         row.receivedqty || '',
         row.openqty || '',
@@ -558,11 +555,11 @@ export default function OpenPoVendor3060Page() {
         extra.chassis || '',
         extra.shippingMethod || '',
         extra.category || '',
-        normalizeDateForInput(extra.estimatedShipmentDate || ''),
+        extra.estimatedShipmentDate || '',
         extra.purchasingManager || '',
         extra.supplier || '',
-        normalizeDateForInput(extra.plannedArrivalDate || ''),
-        normalizeDateForInput(extra.actualShipmentDate || ''),
+        extra.plannedArrivalDate || '',
+        extra.actualShipmentDate || '',
         extra.actualShippedQty || '',
         extra.remainingUnshippedQty || '',
         extra.seaFreightChassis || '',
@@ -627,8 +624,8 @@ export default function OpenPoVendor3060Page() {
         return v;
       };
       const headers = parseCsvLine(headerLine);
-      const keyIdx = headers.findIndex((h) => normalizeHeader(h) === normalizeHeader(TEMPLATE_PK_HEADER));
-      const legacyKeyIdx = headers.findIndex((h) => normalizeHeader(h) === normalizeHeader(LEGACY_TEMPLATE_PK_HEADER));
+      const keyIdx = headers.indexOf(TEMPLATE_PK_HEADER);
+      const legacyKeyIdx = headers.indexOf(LEGACY_TEMPLATE_PK_HEADER);
       const compositeKeyIdx = keyIdx !== -1 ? keyIdx : legacyKeyIdx;
       const poIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_number');
       const poItemIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_item');
@@ -698,7 +695,7 @@ export default function OpenPoVendor3060Page() {
         headers.forEach((header, idx) => {
           const field = HEADER_TO_FIELD[header] || HEADER_TO_FIELD[normalizeHeader(header)];
           if (!field) return;
-          let value = String(cells[idx] ?? '').trim();
+          let value = String(cells[idx] ?? '');
           if (field === 'estimatedShipmentDate' || field === 'plannedArrivalDate' || field === 'actualShipmentDate') {
             value = normalizeDateForInput(value);
           }
