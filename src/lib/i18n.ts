@@ -15,6 +15,7 @@ export const labels: Record<string, { zh: string; en: string }> = {
   appAdmin: { zh: '应用管理', en: 'App Admin' },
   partsRequestsApi: { zh: '生产零件汇总', en: 'Parts Requests API' },
   partsDelivery: { zh: '售后零件汇总', en: 'Parts Delivery' },
+  longtreeOrderReport: { zh: 'Longtree 订单 Report', en: 'Longtree Order Report' },
   openPoAll: { zh: '全部 OpenPO', en: 'All OpenPO' },
   search: { zh: '搜索', en: 'Search' },
   filter: { zh: '过滤', en: 'Filter' },
