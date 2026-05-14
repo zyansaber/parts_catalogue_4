@@ -10,7 +10,9 @@ import { getLang, t, type Lang } from '@/lib/i18n';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 type OpenPoItem = {
+  sapMatched?: boolean;
   po_number?: string;
+  po_item?: string;
   part?: string;
   vendor?: string;
   purchasinggroup?: string;
@@ -52,10 +54,12 @@ type ViewTab = 'active' | 'cancelled';
 type ShippingStatusFilter = 'all' | 'intransit' | 'notshipped';
 
 const PAGE_SIZE = 30;
-const TEMPLATE_PK_HEADER = 'po_number+part';
+const TEMPLATE_PK_HEADER = 'po_number+po_item+part';
+const LEGACY_TEMPLATE_PK_HEADER = 'po_number+part';
 const BASE_UPLOAD_HEADERS_ZH = [
   TEMPLATE_PK_HEADER,
   'po_number',
+  'po_item',
   'part',
   'vendor',
   'purchasinggroup',
@@ -124,6 +128,7 @@ const HEADER_TO_FIELD: Record<string, keyof OpenPoExtraFields> = {
 };
 const BASE_HEADER_ALIASES: Record<string, keyof OpenPoItem> = {
   po_number: 'po_number',
+  po_item: 'po_item',
   part: 'part',
   vendor: 'vendor',
   purchasinggroup: 'purchasinggroup',
@@ -146,8 +151,8 @@ const normalizeDateForInput = (value: string) => {
   if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   return raw;
 };
-const makeExtraKey = (poNumber: string, part: string) =>
-  `${sanitizeDbKey(String(poNumber || '').trim())}__${sanitizeDbKey(String(part || '').trim())}`;
+const makeExtraKey = (poNumber: string, poItem: string, part: string) =>
+  `${sanitizeDbKey(String(poNumber || '').trim())}__${sanitizeDbKey(String(poItem || '').trim())}__${sanitizeDbKey(String(part || '').trim())}`;
 
 const formatDate = (value?: string) => {
   if (!value) return '-';
@@ -162,16 +167,18 @@ const formatDate = (value?: string) => {
 
 function ExtraFieldsPanel({
   poNumber,
+  poItem,
   part,
   extra,
   chassisFallback,
   updateExtraField,
 }: {
   poNumber: string;
+  poItem: string;
   part: string;
   extra: OpenPoExtraFields;
   chassisFallback: string;
-  updateExtraField: (po: string, part: string, field: keyof OpenPoExtraFields, value: string) => void;
+  updateExtraField: (po: string, poItem: string, part: string, field: keyof OpenPoExtraFields, value: string) => void;
 }) {
   const field = (
     label: string,
@@ -189,7 +196,7 @@ function ExtraFieldsPanel({
       className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
       placeholder={placeholder ?? '—'}
       value={(extra[key] as string) || ''}
-      onChange={(e) => updateExtraField(poNumber, part, key, e.target.value)}
+      onChange={(e) => updateExtraField(poNumber, poItem, part, key, e.target.value)}
     />
   );
 
@@ -198,7 +205,7 @@ function ExtraFieldsPanel({
       type="date"
       className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
       value={(extra[key] as string) || ''}
-      onChange={(e) => updateExtraField(poNumber, part, key, e.target.value)}
+      onChange={(e) => updateExtraField(poNumber, poItem, part, key, e.target.value)}
     />
   );
 
@@ -211,7 +218,7 @@ function ExtraFieldsPanel({
           className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
           placeholder="—"
           value={extra.chassis ?? chassisFallback}
-          onChange={(e) => updateExtraField(poNumber, part, 'chassis', e.target.value)}
+          onChange={(e) => updateExtraField(poNumber, poItem, part, 'chassis', e.target.value)}
         />,
       )}
       {field(
@@ -220,7 +227,7 @@ function ExtraFieldsPanel({
         <select
           className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
           value={extra.shippingMethod || 'sea freight'}
-          onChange={(e) => updateExtraField(poNumber, part, 'shippingMethod', e.target.value)}
+          onChange={(e) => updateExtraField(poNumber, poItem, part, 'shippingMethod', e.target.value)}
         >
           <option value="sea freight">Sea Freight</option>
           <option value="air freight">Air Freight</option>
@@ -232,7 +239,7 @@ function ExtraFieldsPanel({
         <select
           className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-100"
           value={extra.category || ''}
-          onChange={(e) => updateExtraField(poNumber, part, 'category', e.target.value)}
+          onChange={(e) => updateExtraField(poNumber, poItem, part, 'category', e.target.value)}
         >
           <option value=""></option>
           <option value="自制件">自制件</option>
@@ -276,6 +283,8 @@ export default function OpenPoVendor3060Page() {
   // Set of expanded row keys
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
+  const [wrongCodeNotes, setWrongCodeNotes] = useState<Record<string, string>>({});
+  const [wrongCodeFilter, setWrongCodeFilter] = useState<'all' | 'wrongOnly'>('all');
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const mergeWithOpenPo = (
     uploaded: Record<string, OpenPoItem>,
@@ -283,20 +292,24 @@ export default function OpenPoVendor3060Page() {
   ) => {
     const openPoByKey = Object.values(openPoRaw || {}).reduce<Record<string, OpenPoItem>>((acc, item) => {
       const po = String(item.po_number || '').trim();
+      const poItem = String(item.po_item || '').trim();
       const part = String(item.part || '').trim();
       if (!po || !part) return acc;
-      acc[makeExtraKey(po, part)] = item;
+      acc[makeExtraKey(po, poItem, part)] = item;
       return acc;
     }, {});
     return Object.values(uploaded || {}).map((row) => {
       const po = String(row.po_number || '').trim();
       const part = String(row.part || '').trim();
-      const matched = openPoByKey[makeExtraKey(po, part)] || {};
+      const poItem = String(row.po_item || '').trim();
+      const matched = openPoByKey[makeExtraKey(po, poItem, part)] || {};
+      const sapMatched = Boolean(Object.keys(matched).length);
       return {
         ...matched,
         ...row,
         // uploaded PO / part are authoritative
         po_number: po,
+        po_item: poItem,
         part,
         // business fields优先来自 production_report/open_po
         vendor: matched.vendor || row.vendor,
@@ -309,6 +322,7 @@ export default function OpenPoVendor3060Page() {
         spras_en: matched.spras_en || matched.description || row.spras_en || row.description,
         spras_zh: matched.spras_zh || row.spras_zh,
         chassisnumber: matched.chassisnumber || row.chassisnumber,
+        sapMatched,
       } as OpenPoItem;
     });
   };
@@ -327,7 +341,8 @@ export default function OpenPoVendor3060Page() {
       get(ref(database, 'app_admin/purchasing_group_mapping')),
       get(ref(database, 'app_admin/cancelled_openpo')),
       get(ref(database, 'app_admin/openpo_vendor_3060_extra')),
-    ]).then(([uploadSnap, prodOpenSnap, allParts, mapSnap, cancelSnap, extraSnap]) => {
+      get(ref(database, 'app_admin/openpo_vendor_3060_wrong_code_notes')),
+    ]).then(([uploadSnap, prodOpenSnap, allParts, mapSnap, cancelSnap, extraSnap, wrongSnap]) => {
       const uploaded = (uploadSnap.val() || {}) as Record<string, OpenPoItem>;
       const prodOpen = (prodOpenSnap.val() || {}) as Record<string, OpenPoItem>;
       setItems(mergeWithOpenPo(uploaded, prodOpen));
@@ -342,6 +357,7 @@ export default function OpenPoVendor3060Page() {
       setMapping((mapSnap.val() || {}) as Record<string, string>);
       setCancelled((cancelSnap.val() || {}) as Record<string, boolean>);
       setExtraByPo((extraSnap.val() || {}) as Record<string, OpenPoExtraFields>);
+      setWrongCodeNotes((wrongSnap.val() || {}) as Record<string, string>);
     });
   }, []);
 
@@ -351,11 +367,11 @@ export default function OpenPoVendor3060Page() {
       items.forEach((row) => {
         const poNumber = String(row.po_number || '').trim();
         if (!poNumber) return;
-        const current = extraByPo[makeExtraKey(poNumber, row.part || '')] || extraByPo[poNumber] || {};
+        const current = extraByPo[makeExtraKey(poNumber, String(row.po_item || ''), row.part || '')] || extraByPo[poNumber] || {};
         const next: Partial<OpenPoExtraFields> = {};
         if (!current.shippingMethod) next.shippingMethod = 'sea freight';
         if (!current.chassis && row.chassisnumber) next.chassis = row.chassisnumber;
-        if (Object.keys(next).length) updatesByPo[makeExtraKey(poNumber, row.part || '')] = { ...next, part: row.part || '' };
+        if (Object.keys(next).length) updatesByPo[makeExtraKey(poNumber, String(row.po_item || ''), row.part || '')] = { ...next, part: row.part || '' };
       });
 
       if (!Object.keys(updatesByPo).length) return;
@@ -378,10 +394,7 @@ export default function OpenPoVendor3060Page() {
     void initExtras();
   }, [items, extraByPo]);
 
-  const vendorFiltered = useMemo(
-    () => items.filter((i) => String(i.vendor || '').replace(/^0+/, '').trim() === '3060'),
-    [items],
-  );
+  const vendorFiltered = useMemo(() => items, [items]);
 
   const filtered = useMemo(() => {
     if (purchaserFilter === 'all') return vendorFiltered;
@@ -402,10 +415,10 @@ export default function OpenPoVendor3060Page() {
     });
   }, [filtered, searchKeyword, vendorFiltered]);
 
-  const keyOf = (row: OpenPoItem) => `${row.po_number || 'po'}_${row.part || 'part'}`;
+  const keyOf = (row: OpenPoItem) => `${row.po_number || 'po'}_${row.po_item || 'item'}_${row.part || 'part'}`;
   const shippingStatusOf = (row: OpenPoItem): Exclude<ShippingStatusFilter, 'all'> => {
     const poNumber = String(row.po_number || '');
-    const extra = extraByPo[makeExtraKey(poNumber, row.part || '')] || extraByPo[poNumber] || {};
+    const extra = extraByPo[makeExtraKey(poNumber, String(row.po_item || ''), row.part || '')] || extraByPo[poNumber] || {};
     return extra.actualShipmentDate ? 'intransit' : 'notshipped';
   };
   const statusFilteredRows = useMemo(() => {
@@ -413,12 +426,20 @@ export default function OpenPoVendor3060Page() {
     if (shippingStatusFilter === 'all') return searchedRows;
     return searchedRows.filter((row) => shippingStatusOf(row) === shippingStatusFilter);
   }, [searchedRows, shippingStatusFilter, extraByPo, searchKeyword]);
-  const activeRows = useMemo(() => statusFilteredRows.filter((row) => !cancelled[keyOf(row)]), [statusFilteredRows, cancelled]);
-  const cancelledRows = useMemo(() => statusFilteredRows.filter((row) => cancelled[keyOf(row)]), [statusFilteredRows, cancelled]);
-  const visibleRows = searchKeyword.trim() ? statusFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
+  const wrongFilteredRows = useMemo(() => {
+    if (wrongCodeFilter === 'all') return statusFilteredRows;
+    return statusFilteredRows.filter((row) => !!wrongCodeNotes[makeExtraKey(String(row.po_number || ''), String(row.po_item || ''), String(row.part || ''))]);
+  }, [statusFilteredRows, wrongCodeFilter, wrongCodeNotes]);
+  const activeRows = useMemo(() => wrongFilteredRows.filter((row) => !cancelled[keyOf(row)]), [wrongFilteredRows, cancelled]);
+  const cancelledRows = useMemo(() => wrongFilteredRows.filter((row) => cancelled[keyOf(row)]), [wrongFilteredRows, cancelled]);
+  const visibleRows = searchKeyword.trim() ? wrongFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
 
   const totalOpenQty = useMemo(() => visibleRows.reduce((sum, item) => sum + Number(item.openqty || 0), 0), [visibleRows]);
   const openPoNumber = useMemo(() => new Set(visibleRows.map((x) => x.po_number).filter(Boolean)).size, [visibleRows]);
+  const unshippedItemCount = useMemo(
+    () => visibleRows.filter((row) => shippingStatusOf(row) === 'notshipped').length,
+    [visibleRows, extraByPo],
+  );
   const displayNumber = (value?: number) => Number(value || 0).toLocaleString();
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
@@ -427,7 +448,7 @@ export default function OpenPoVendor3060Page() {
     return visibleRows.slice(start, start + PAGE_SIZE);
   }, [visibleRows, currentPage]);
 
-  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter, searchKeyword]);
+  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter, searchKeyword, wrongCodeFilter]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -443,21 +464,16 @@ export default function OpenPoVendor3060Page() {
   const reportWrongCode = async (row: OpenPoItem) => {
     const poNumber = String(row.po_number || '').trim();
     const part = String(row.part || '').trim();
+    const noteKey = makeExtraKey(poNumber, String(row.po_item || ''), part);
+    const current = wrongCodeNotes[noteKey] || '';
     const reason = window.prompt(
-      lang === 'zh' ? '请输入错误说明（可选）' : 'Please enter issue details (optional).',
-      '',
+      lang === 'zh' ? '请输入错误料号批注（留空可清除）' : 'Please enter wrong-code note (leave empty to clear).',
+      current,
     );
-    const payload = {
-      po_number: poNumber,
-      part,
-      reason: String(reason || '').trim(),
-      reportedAt: new Date().toISOString(),
-    };
-    await set(
-      ref(database, `app_admin/openpo_vendor_3060_wrong_code_reports/${makeExtraKey(poNumber, part)}_${Date.now()}`),
-      payload,
-    );
-    window.alert(lang === 'zh' ? '已提交 Wrong Code 报告' : 'Wrong code report submitted.');
+    if (reason === null) return;
+    const note = String(reason || '').trim();
+    await set(ref(database, `app_admin/openpo_vendor_3060_wrong_code_notes/${noteKey}`), note);
+    setWrongCodeNotes((prev) => ({ ...prev, [noteKey]: note }));
   };
 
   const bulkCancelByPo = async () => {
@@ -505,9 +521,9 @@ export default function OpenPoVendor3060Page() {
     URL.revokeObjectURL(url);
   };
 
-  const updateExtraField = async (poNumber: string, part: string, field: keyof OpenPoExtraFields, value: string) => {
+  const updateExtraField = async (poNumber: string, poItem: string, part: string, field: keyof OpenPoExtraFields, value: string) => {
     if (!poNumber) return;
-    const extraKey = makeExtraKey(poNumber, part);
+    const extraKey = makeExtraKey(poNumber, poItem, part);
     setExtraByPo((prev) => ({
       ...prev,
       [extraKey]: { ...prev[extraKey], part, [field]: value },
@@ -519,10 +535,11 @@ export default function OpenPoVendor3060Page() {
       const rows = filtered.map((row) => {
         const poNumber = String(row.po_number || '').trim();
         const part = String(row.part || '').trim();
-        const extra = extraByPo[makeExtraKey(poNumber, part)] || extraByPo[poNumber] || {};
+        const extra = extraByPo[makeExtraKey(poNumber, String(row.po_item || ''), part)] || extraByPo[poNumber] || {};
         return [
-        `${poNumber}+${part}`,
+        `${poNumber}+${row.po_item || ''}+${part}`,
         poNumber,
+        row.po_item || '',
         part,
         row.vendor || '',
         row.purchasinggroup || '',
@@ -608,22 +625,26 @@ export default function OpenPoVendor3060Page() {
       };
       const headers = parseCsvLine(headerLine);
       const keyIdx = headers.indexOf(TEMPLATE_PK_HEADER);
+      const legacyKeyIdx = headers.indexOf(LEGACY_TEMPLATE_PK_HEADER);
+      const compositeKeyIdx = keyIdx !== -1 ? keyIdx : legacyKeyIdx;
       const poIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_number');
+      const poItemIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_item');
       const partIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'part');
-      if (keyIdx === -1 && (poIdx === -1 || partIdx === -1)) {
+      if (compositeKeyIdx === -1 && (poIdx === -1 || partIdx === -1)) {
         alert(
           lang === 'zh'
-            ? '上传文件缺少“po_number+part”列（或“po_number”和“part”列）'
-            : 'Missing composite key column (or PO number and part columns).',
+            ? '上传文件缺少“po_number+po_item+part”（兼容“po_number+part”）列（或“po_number”和“part”列）'
+            : 'Missing composite key column “po_number+po_item+part” (legacy “po_number+part” is supported), or PO/Part columns.',
         );
         return;
       }
 
       const prevItemsByKey = items.reduce<Record<string, OpenPoItem>>((acc, row) => {
         const po = String(row.po_number || '').trim();
+        const poItem = String(row.po_item || '').trim();
         const part = String(row.part || '').trim();
         if (!po || !part) return acc;
-        acc[makeExtraKey(po, part)] = row;
+        acc[makeExtraKey(po, poItem, part)] = row;
         return acc;
       }, {});
       const rowMap: Record<string, OpenPoItem> = { ...prevItemsByKey };
@@ -634,23 +655,28 @@ export default function OpenPoVendor3060Page() {
       dataLines.forEach((line) => {
         const cells = parseCsvLine(line);
         let poNumber = normalizePoValue(String(cells[poIdx] || '').trim());
+        let poItem = String(cells[poItemIdx] || '').trim();
         let part = String(cells[partIdx] || '').trim();
-        if ((!poNumber || !part) && keyIdx !== -1) {
-          const composite = String(cells[keyIdx] || '').trim();
-          const sep = composite.indexOf('+');
-          if (sep > -1) {
-            poNumber = normalizePoValue(composite.slice(0, sep).trim());
-            part = composite.slice(sep + 1).trim();
+        if ((!poNumber || !part) && compositeKeyIdx !== -1) {
+          const composite = String(cells[compositeKeyIdx] || '').trim();
+          const parts = composite.split('+').map((x) => x.trim());
+          if (parts.length >= 3) {
+            poNumber = normalizePoValue(parts[0]);
+            poItem = parts[1];
+            part = parts.slice(2).join('+');
+          } else if (parts.length === 2) {
+            poNumber = normalizePoValue(parts[0]);
+            part = parts[1];
           }
         }
         if (!poNumber || !part) return;
-        const extraKey = makeExtraKey(poNumber, part);
+        const extraKey = makeExtraKey(poNumber, poItem, part);
         const yesNo = (v: string) => ['yes', 'y', 'true', '1'].includes(String(v || '').trim().toLowerCase());
         const current = prevItemsByKey[extraKey] || {};
-        const rowItem: OpenPoItem = { ...current, po_number: poNumber, part };
+        const rowItem: OpenPoItem = { ...current, po_number: poNumber, po_item: poItem, part };
         headers.forEach((header, idx) => {
           const baseField = BASE_HEADER_ALIASES[normalizeHeader(header)];
-          if (!baseField || baseField === 'po_number' || baseField === 'part') return;
+          if (!baseField || baseField === 'po_number' || baseField === 'po_item' || baseField === 'part') return;
           const raw = String(cells[idx] ?? '').trim();
           if (raw === '') return;
           if (baseField === 'orderqty' || baseField === 'receivedqty' || baseField === 'openqty') {
@@ -798,6 +824,12 @@ export default function OpenPoVendor3060Page() {
       )}
       {viewTab === 'active' && (
         <div className="flex items-center gap-2">
+          <Button variant={wrongCodeFilter === 'all' ? 'default' : 'outline'} onClick={() => setWrongCodeFilter('all')}>
+            {lang === 'zh' ? '错误料号：全部' : 'Wrong Code: All'}
+          </Button>
+          <Button variant={wrongCodeFilter === 'wrongOnly' ? 'default' : 'outline'} onClick={() => setWrongCodeFilter('wrongOnly')}>
+            {lang === 'zh' ? '仅错误料号' : 'Wrong Code Only'}
+          </Button>
           <Button variant={shippingStatusFilter === 'all' ? 'default' : 'outline'} onClick={() => setShippingStatusFilter('all')}>
             {lang === 'zh' ? '发货状态：全部' : 'Shipping: All'}
           </Button>
@@ -846,7 +878,7 @@ export default function OpenPoVendor3060Page() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
           <CardHeader><CardTitle>{t(lang, 'lineCount')}</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold">{openPoNumber}</CardContent>
@@ -854,6 +886,14 @@ export default function OpenPoVendor3060Page() {
         <Card>
           <CardHeader><CardTitle>{t(lang, 'totalOpenQty')}</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold">{displayNumber(totalOpenQty)}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>{lang === 'zh' ? '错误料号条数' : 'Wrong Code Rows'}</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold text-rose-600">{Object.values(wrongCodeNotes).filter(Boolean).length}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>{lang === 'zh' ? 'Item 未发数量' : 'Unshipped Item Count'}</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold text-amber-600">{unshippedItemCount}</CardContent>
         </Card>
       </div>
 
@@ -873,6 +913,7 @@ export default function OpenPoVendor3060Page() {
                   <th className="px-3 py-3 whitespace-nowrap">
                     {lang === 'zh' ? '采购专员' : 'Purchaser'}
                   </th>
+                  <th className="px-3 py-3 whitespace-nowrap">PO Item</th>
                   <th className="px-3 py-3 whitespace-nowrap">{t(lang, 'part')}</th>
                   <th className="px-3 py-3 whitespace-nowrap">{lang === 'zh' ? '照片' : 'Photo'}</th>
                   <th className="px-3 py-3 whitespace-nowrap">{lang === 'zh' ? '澳洲库存' : 'AU Stock'}</th>
@@ -900,17 +941,19 @@ export default function OpenPoVendor3060Page() {
                   const cancelledRow = cancelled[keyOf(r)];
                   const rowKey = keyOf(r);
                   const poNumber = String(r.po_number || '');
-                  const extra = extraByPo[makeExtraKey(poNumber, r.part || '')] || extraByPo[poNumber] || {};
+                  const extra = extraByPo[makeExtraKey(poNumber, String(r.po_item || ''), r.part || '')] || extraByPo[poNumber] || {};
                   const shippingStatus = shippingStatusOf(r);
                   const isExpanded = expandedRows.has(rowKey);
                   const filled = filledCount(extra);
+                  const wrongCodeNote = wrongCodeNotes[makeExtraKey(poNumber, String(r.po_item || ''), r.part || '')] || '';
+                  const sapMissing = r.sapMatched === false;
 
                   return (
                     <>
                       {/* Main row */}
                       <tr
                         key={rowKey}
-                        className={`transition-colors ${shippingStatus === 'intransit' ? 'bg-emerald-50/40 hover:bg-emerald-50/60' : 'bg-amber-50/30 hover:bg-amber-50/50'} ${cancelledRow ? 'opacity-40' : ''} ${isExpanded ? 'ring-1 ring-blue-200' : ''}`}
+                        className={`transition-colors ${sapMissing ? 'bg-rose-50/60 hover:bg-rose-50/80' : (shippingStatus === 'intransit' ? 'bg-emerald-50/40 hover:bg-emerald-50/60' : 'bg-amber-50/30 hover:bg-amber-50/50')} ${cancelledRow ? 'opacity-40' : ''} ${isExpanded ? 'ring-1 ring-blue-200' : ''}`}
                       >
                         {/* Expand toggle */}
                         <td className="sticky left-0 z-10 bg-inherit px-2 py-2 w-8">
@@ -938,6 +981,7 @@ export default function OpenPoVendor3060Page() {
                           {mapping[String(r.purchasinggroup || '')] || r.purchasinggroup || '-'}
                         </td>
 
+                        <td className="px-3 py-2 font-mono text-xs">{r.po_item || '-'}</td>
                         <td className="px-3 py-2 font-mono text-xs">{r.part || '-'}</td>
 
                         {/* Photo */}
@@ -975,10 +1019,10 @@ export default function OpenPoVendor3060Page() {
                         <td className="px-3 py-2 max-w-[240px]">
                           <div className="space-y-0.5">
                             <div className="text-xs leading-snug text-gray-800 line-clamp-2">
-                              {r.spras_en || r.description || '-'}
+                              {sapMissing ? (lang === 'zh' ? '无相应SAP Data' : 'No matching SAP Data') : (r.spras_en || r.description || '-')}
                             </div>
                             <div className="text-[10px] leading-snug text-gray-400">
-                              {r.spras_zh || ''}
+                              {sapMissing ? '' : (r.spras_zh || '')}
                             </div>
                           </div>
                         </td>
@@ -1032,8 +1076,8 @@ export default function OpenPoVendor3060Page() {
                                 ? (lang === 'zh' ? '恢复' : 'Undo')
                                 : 'Cancel'}
                             </Button>
-                            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => reportWrongCode(r)}>
-                              {lang === 'zh' ? 'Wrong Code（错误料号）' : 'Wrong Code'}
+                            <Button variant="outline" size="sm" className={`h-7 text-xs ${wrongCodeNote ? 'border-rose-300 text-rose-600' : ''}`} onClick={() => reportWrongCode(r)}>
+                              {wrongCodeNote || (lang === 'zh' ? 'Wrong Code（错误料号）' : 'Wrong Code')}
                             </Button>
                           </div>
                         </td>
@@ -1042,10 +1086,11 @@ export default function OpenPoVendor3060Page() {
                       {/* Expanded extra fields row */}
                       {isExpanded && (
                         <tr key={`${rowKey}_extra`} className="bg-gray-50/80">
-                          <td colSpan={15} className="p-0">
+                          <td colSpan={16} className="p-0">
                             <div className="border-l-4 border-blue-400">
                               <ExtraFieldsPanel
                                 poNumber={poNumber}
+                                poItem={String(r.po_item || '')}
                                 part={r.part || ''}
                                 extra={extra}
                                 chassisFallback={r.chassisnumber ?? ''}
