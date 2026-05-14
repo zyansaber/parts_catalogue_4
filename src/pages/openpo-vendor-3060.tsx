@@ -50,7 +50,7 @@ type OpenPoExtraFields = {
 };
 
 type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
-type ViewTab = 'active' | 'new7days' | 'cancelled' | 'dashboard';
+type ViewTab = 'active' | 'cancelled' | 'dashboard';
 type ShippingStatusFilter = 'all' | 'intransit' | 'notshipped';
 type ShippingMethodFilter = 'all' | 'air freight' | 'sea freight';
 
@@ -154,17 +154,6 @@ const normalizeDateForInput = (value: string) => {
   const dmy = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
   return raw;
-};
-const ymdNumber = (value?: string) => {
-  const normalized = normalizeDateForInput(String(value || ''));
-  if (!normalized) return null;
-  const digits = normalized.replace(/-/g, '');
-  if (!/^\d{8}$/.test(digits)) return null;
-  return Number(digits);
-};
-const isOnOrAfter = (value: string | undefined, thresholdYmd: number) => {
-  const num = ymdNumber(value);
-  return num !== null && num >= thresholdYmd;
 };
 const makeExtraKey = (poNumber: string, poItem: string, part: string) =>
   `${sanitizeDbKey(String(poNumber || '').trim())}__${sanitizeDbKey(String(poItem || '').trim())}__${sanitizeDbKey(String(part || '').trim())}`;
@@ -306,7 +295,6 @@ export default function OpenPoVendor3060Page() {
   const mergeWithOpenPo = (
     uploaded: Record<string, OpenPoItem>,
     openPoRaw: Record<string, OpenPoItem>,
-    openPoHashRaw: Record<string, OpenPoItem>,
   ) => {
     const openPoByKey = Object.values(openPoRaw || {}).reduce<Record<string, OpenPoItem>>((acc, item) => {
       const po = String(item.po_number || '').trim();
@@ -316,14 +304,7 @@ export default function OpenPoVendor3060Page() {
       acc[makeExtraKey(po, poItem, part)] = item;
       return acc;
     }, {});
-    const mergedInput: OpenPoItem[] = [];
-    Object.values(uploaded || {}).forEach((row) => {
-      if (!isOnOrAfter(row.orderdate, 20260507)) mergedInput.push(row);
-    });
-    Object.values(openPoHashRaw || {}).forEach((row) => {
-      if (isOnOrAfter(row.orderdate, 20260507)) mergedInput.push(row);
-    });
-    return mergedInput.map((row) => {
+    return Object.values(uploaded || {}).map((row) => {
       const po = String(row.po_number || '').trim();
       const part = String(row.part || '').trim();
       const poItem = String(row.po_item || '').trim();
@@ -362,17 +343,15 @@ export default function OpenPoVendor3060Page() {
     Promise.all([
       get(ref(database, 'app_admin/openpo_vendor_3060_upload/items')),
       get(ref(database, 'production_report/open_po/items')),
-      get(ref(database, 'production_report/open_po/hash/items')),
       FirebaseService.getAllParts(),
       get(ref(database, 'app_admin/purchasing_group_mapping')),
       get(ref(database, 'app_admin/cancelled_openpo')),
       get(ref(database, 'app_admin/openpo_vendor_3060_extra')),
       get(ref(database, 'app_admin/openpo_vendor_3060_wrong_code_notes')),
-    ]).then(([uploadSnap, prodOpenSnap, prodOpenHashSnap, allParts, mapSnap, cancelSnap, extraSnap, wrongSnap]) => {
+    ]).then(([uploadSnap, prodOpenSnap, allParts, mapSnap, cancelSnap, extraSnap, wrongSnap]) => {
       const uploaded = (uploadSnap.val() || {}) as Record<string, OpenPoItem>;
       const prodOpen = (prodOpenSnap.val() || {}) as Record<string, OpenPoItem>;
-      const prodOpenHash = (prodOpenHashSnap.val() || {}) as Record<string, OpenPoItem>;
-      setItems(mergeWithOpenPo(uploaded, prodOpen, prodOpenHash));
+      setItems(mergeWithOpenPo(uploaded, prodOpen));
       const stockMap = Object.entries(allParts || {}).reduce<Record<string, number>>((acc, [material, part]) => {
         const key = String(material || '').trim();
         if (!key) return acc;
@@ -469,25 +448,13 @@ export default function OpenPoVendor3060Page() {
 
   const activeRows = useMemo(() => methodFilteredRows.filter((row) => !cancelled[keyOf(row)]), [methodFilteredRows, cancelled]);
   const cancelledRows = useMemo(() => methodFilteredRows.filter((row) => cancelled[keyOf(row)]), [methodFilteredRows, cancelled]);
-  const new7DaysRows = useMemo(() => {
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-    return activeRows.filter((row) => {
-      const normalized = normalizeDateForInput(String(row.orderdate || ''));
-      if (!normalized) return false;
-      const d = new Date(`${normalized}T00:00:00`);
-      return !Number.isNaN(d.getTime()) && d >= sevenDaysAgo;
-    });
-  }, [activeRows]);
 
   // Dashboard rows: completely independent of all filters — just non-cancelled items
   const allActiveItems = useMemo(
     () => items.filter((row) => !cancelled[keyOf(row)]),
     [items, cancelled],
   );
-  const visibleRows = searchKeyword.trim()
-    ? methodFilteredRows
-    : (viewTab === 'cancelled' ? cancelledRows : (viewTab === 'new7days' ? new7DaysRows : activeRows));
+  const visibleRows = searchKeyword.trim() ? methodFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
 
   const totalOpenQty = useMemo(() => visibleRows.reduce((sum, item) => sum + Number(item.openqty || 0), 0), [visibleRows]);
   const openPoNumber = useMemo(() => new Set(visibleRows.map((x) => x.po_number).filter(Boolean)).size, [visibleRows]);
@@ -831,18 +798,14 @@ export default function OpenPoVendor3060Page() {
 
       if (Object.keys(rowMap).length) {
         await set(ref(database, 'app_admin/openpo_vendor_3060_upload/items'), rowMap);
-        const [prodOpenSnap, prodOpenHashSnap] = await Promise.all([
-          get(ref(database, 'production_report/open_po/items')),
-          get(ref(database, 'production_report/open_po/hash/items')),
-        ]);
+        const prodOpenSnap = await get(ref(database, 'production_report/open_po/items'));
         const prodOpen = (prodOpenSnap.val() || {}) as Record<string, OpenPoItem>;
-        const prodOpenHash = (prodOpenHashSnap.val() || {}) as Record<string, OpenPoItem>;
         if (Object.keys(cancelledUpdates).length) {
           await update(ref(database, 'app_admin/cancelled_openpo'), cancelledUpdates);
           setCancelled((prev) => ({ ...prev, ...cancelledUpdates }));
         }
         if (dbPromises.length) await Promise.all(dbPromises);
-        setItems(mergeWithOpenPo(rowMap, prodOpen, prodOpenHash));
+        setItems(mergeWithOpenPo(rowMap, prodOpen));
         setExtraByPo((prev) => ({ ...prev, ...updatedLocal }));
       }
       alert(
@@ -931,13 +894,6 @@ export default function OpenPoVendor3060Page() {
         </Button>
         <Button
           className="h-8 rounded-md px-4 text-sm"
-          variant={viewTab === 'new7days' ? 'default' : 'ghost'}
-          onClick={() => setViewTab('new7days')}
-        >
-          {lang === 'zh' ? '新订单（7天）' : 'New Orders (7d)'}
-        </Button>
-        <Button
-          className="h-8 rounded-md px-4 text-sm"
           variant={viewTab === 'cancelled' ? 'default' : 'ghost'}
           onClick={() => setViewTab('cancelled')}
         >
@@ -953,7 +909,7 @@ export default function OpenPoVendor3060Page() {
       </div>
 
       {/* Purchaser filter */}
-      {(viewTab === 'active' || viewTab === 'new7days') && (
+      {viewTab === 'active' && (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Button
             className="h-14 text-base"
@@ -971,7 +927,7 @@ export default function OpenPoVendor3060Page() {
           </Button>
         </div>
       )}
-      {(viewTab === 'active' || viewTab === 'new7days') && (
+      {viewTab === 'active' && (
         <div className="flex flex-wrap items-center gap-2">
           <Button variant={wrongCodeOnly ? 'default' : 'outline'} onClick={() => setWrongCodeOnly((v) => !v)}>
             {lang === 'zh' ? '仅错误料号' : 'Wrong Code Only'}
@@ -1383,7 +1339,6 @@ export default function OpenPoVendor3060Page() {
                                   src={FirebaseService.getPartImageUrl(r.part || '')}
                                   fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
                                   alt={r.part || 'part'}
-                                  hideFallbackText
                                   className="h-full w-full object-contain"
                                 />
                               </button>
@@ -1394,7 +1349,6 @@ export default function OpenPoVendor3060Page() {
                                   src={FirebaseService.getPartImageUrl(r.part || '')}
                                   fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
                                   alt={r.part || 'part'}
-                                  hideFallbackText
                                   className="h-full w-full object-contain"
                                 />
                               </div>
