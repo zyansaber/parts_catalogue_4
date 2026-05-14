@@ -13,7 +13,8 @@ import { FirebaseService } from '@/services/firebase';
 import { Part } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
-import { getLang, resolvePartDescription, type Lang } from '@/lib/i18n';
+import { getLang, resolvePartDescription, t, type Lang } from '@/lib/i18n';
+import { LanguageSwitcher } from '@/components/ui/language-switcher';
 
 export default function PartsCataloguePage() {
   const [allParts, setAllParts] = useState<Record<string, Part>>({});
@@ -31,7 +32,12 @@ export default function PartsCataloguePage() {
   const itemsPerPage = 50;
 
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
-  useEffect(() => { const fn = () => setLang(getLang()); window.addEventListener('language-change', fn); return () => window.removeEventListener('language-change', fn); }, []);
+  
+  useEffect(() => {
+    const fn = () => setLang(getLang());
+    window.addEventListener('language-change', fn);
+    return () => window.removeEventListener('language-change', fn);
+  }, []);
 
   // Load initial data and handle search
   useEffect(() => {
@@ -45,8 +51,8 @@ export default function PartsCataloguePage() {
       try {
         // Always search the entire database - use getAllParts for complete data
         const partsData = debouncedSearchTerm 
-          ? await FirebaseService.searchParts(debouncedSearchTerm, 10000) // Increase limit for search
-          : await FirebaseService.getAllParts(); // Get all parts when no search term
+          ? await FirebaseService.searchParts(debouncedSearchTerm, 10000)
+          : await FirebaseService.getAllParts();
         setAllParts(partsData);
       } catch (error) {
         console.error('Error loading parts:', error);
@@ -124,28 +130,33 @@ export default function PartsCataloguePage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Parts Catalogue</h1>
-          <p className="text-gray-600 mt-1">Browse and search automotive parts inventory</p>
+          <h1 className="text-3xl font-bold text-gray-900">{t(lang, 'partsCatalogue')}</h1>
+          <p className="text-gray-600 mt-1">
+            {lang === 'zh' ? '浏览和搜索汽车零件库存' : 'Browse and search automotive parts inventory'}
+          </p>
         </div>
-        <Badge variant="secondary" className="text-sm">
-          {filteredAndSortedParts.length} parts found
-          {totalPages > 1 && ` | Page ${currentPage} of ${totalPages}`}
-        </Badge>
+        <div className="flex items-center gap-4">
+          <Badge variant="secondary" className="text-sm whitespace-nowrap">
+            {filteredAndSortedParts.length} {t(lang, 'partsFound')}
+            {totalPages > 1 && ` | ${t(lang, 'page')} ${currentPage} ${t(lang, 'of')} ${totalPages}`}
+          </Badge>
+          <LanguageSwitcher />
+        </div>
       </div>
 
       {/* Search and Filters */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-lg">Search & Filters</CardTitle>
+          <CardTitle className="text-lg">{t(lang, 'searchAndFilters')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="md:col-span-2">
-              <label className="text-sm font-medium mb-2 block">Search Parts</label>
+              <label className="text-sm font-medium mb-2 block">{t(lang, 'searchParts')}</label>
               <div className="relative">
                 <Search className="h-4 w-4 absolute left-3 top-3 text-gray-400" />
                 <Input
-                  placeholder="Search by part code, description, or supplier..."
+                  placeholder={t(lang, 'searchPlaceholder')}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
@@ -159,13 +170,13 @@ export default function PartsCataloguePage() {
             </div>
             
             <div>
-              <label className="text-sm font-medium mb-2 block">Supplier</label>
+              <label className="text-sm font-medium mb-2 block">{t(lang, 'supplier')}</label>
               <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
                 <SelectTrigger>
-                  <SelectValue placeholder="All suppliers" />
+                  <SelectValue placeholder={t(lang, 'allSuppliers')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Suppliers</SelectItem>
+                  <SelectItem value="all">{t(lang, 'allSuppliers')}</SelectItem>
                   {suppliers.map(supplier => (
                     <SelectItem key={supplier} value={supplier}>{supplier}</SelectItem>
                   ))}
@@ -174,135 +185,134 @@ export default function PartsCataloguePage() {
             </div>
             
             <div>
-              <label className="text-sm font-medium mb-2 block">Sort By</label>
+              <label className="text-sm font-medium mb-2 block">{t(lang, 'sortBy')}</label>
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="material">Part Code</SelectItem>
-                  <SelectItem value="price">Price</SelectItem>
-                  <SelectItem value="stock">Stock</SelectItem>
-                  <SelectItem value="supplier">Supplier</SelectItem>
+                  <SelectItem value="material">{t(lang, 'sortMaterial')}</SelectItem>
+                  <SelectItem value="price">{t(lang, 'sortPrice')}</SelectItem>
+                  <SelectItem value="stock">{t(lang, 'sortStock')}</SelectItem>
+                  <SelectItem value="supplier">{t(lang, 'sortSupplier')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
-          
+
           <div className="flex items-center space-x-2">
             <Checkbox
               id="inStock"
               checked={showInStockOnly}
               onCheckedChange={(checked) => setShowInStockOnly(checked as boolean)}
             />
-            <label htmlFor="inStock" className="text-sm font-medium">
-              Show only parts in stock
+            <label htmlFor="inStock" className="text-sm font-medium cursor-pointer">
+              {t(lang, 'inStockOnly')}
             </label>
           </div>
         </CardContent>
       </Card>
 
       {/* Parts Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {Object.entries(displayedParts).map(([material, part]) => (
-          <Card key={material} className="hover:shadow-lg transition-shadow duration-200">
-            <CardContent className="p-3">
-              <div className="aspect-square mb-3 relative bg-gray-50 rounded-lg overflow-hidden">
-                <ImageWithFallback
-                  src={FirebaseService.getPartImageUrl(material)}
-                  fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(material).slice(1)}
-                  alt={resolvePartDescription(lang, part) || material}
-                  className="w-full h-full object-contain"
-                  fallbackClassName="w-full h-full rounded-lg flex items-center justify-center text-gray-400 text-sm"
-                />
+          <Card key={material} className="flex flex-col hover:shadow-lg transition-shadow">
+            <CardContent className="flex-1 p-4 flex flex-col">
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex-1">
+                  {part.Part_Image_Url && (
+                    <ImageWithFallback
+                      src={part.Part_Image_Url}
+                      alt={material}
+                      className="w-full h-48 object-cover rounded-md mb-2"
+                    />
+                  )}
+                </div>
                 
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button
+                      variant="ghost"
                       size="sm"
-                      className="absolute top-2 right-2 h-8 w-8 bg-white/90 hover:bg-white text-gray-700"
                       onClick={() => setSelectedPart({ material, part })}
+                      className="ml-2"
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-3xl">
-                    <DialogHeader>
-                      <DialogTitle>Part Details - {material}</DialogTitle>
-                    </DialogHeader>
-                    {selectedPart && (
-                      <div className="space-y-6">
-                        <div className="aspect-video bg-gray-50 rounded-lg overflow-hidden">
-                          <ImageWithFallback
-                            src={FirebaseService.getPartImageUrl(selectedPart.material)}
-                            fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(selectedPart.material).slice(1)}
-                            alt={resolvePartDescription(lang, selectedPart.part) || selectedPart.material}
-                            className="w-full h-full object-contain"
-                            fallbackClassName="w-full h-full rounded-lg flex items-center justify-center text-gray-400"
-                          />
-                        </div>
+                  {selectedPart?.material === material && (
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle>{t(lang, 'partCodeValue')} {selectedPart.material}</DialogTitle>
+                      </DialogHeader>
+                      {selectedPart && (
                         <div className="grid grid-cols-2 gap-6">
                           <div className="space-y-4">
+                            {selectedPart.part.Part_Image_Url && (
+                              <div>
+                                <ImageWithFallback
+                                  src={selectedPart.part.Part_Image_Url}
+                                  alt={selectedPart.material}
+                                  className="w-full h-80 object-cover rounded-md"
+                                />
+                              </div>
+                            )}
                             <div>
-                              <label className="text-sm font-medium text-gray-500">Part Code</label>
-                              <p className="font-mono text-lg">{selectedPart.material}</p>
-                            </div>
-                            <div>
-                              <label className="text-sm font-medium text-gray-500">Description</label>
+                              <label className="text-sm font-medium text-gray-500">{t(lang, 'description')}</label>
                               <p className="text-gray-900">{resolvePartDescription(lang, selectedPart.part) || '—'}</p>
                             </div>
                             <div>
-                              <label className="text-sm font-medium text-gray-500">Supplier</label>
+                              <label className="text-sm font-medium text-gray-500">{t(lang, 'supplier')}</label>
                               <p className="text-gray-900">{selectedPart.part.Supplier_Name || '—'}</p>
                             </div>
                             {/* Display admin-added fields */}
                             {selectedPart.part.notes && (
                               <div>
-                                <label className="text-sm font-medium text-gray-500">Notes</label>
+                                <label className="text-sm font-medium text-gray-500">{t(lang, 'notes')}</label>
                                 <p className="text-gray-900">{selectedPart.part.notes}</p>
                               </div>
                             )}
                             {selectedPart.part.year && (
                               <div>
-                                <label className="text-sm font-medium text-gray-500">Year</label>
+                                <label className="text-sm font-medium text-gray-500">{t(lang, 'year')}</label>
                                 <p className="text-gray-900">{selectedPart.part.year}</p>
                               </div>
                             )}
                             {selectedPart.part.obsoleted_date && (
                               <div>
-                                <label className="text-sm font-medium text-gray-500">Obsoleted Date</label>
+                                <label className="text-sm font-medium text-gray-500">{t(lang, 'obsoletedDate')}</label>
                                 <p className="text-red-600">{selectedPart.part.obsoleted_date}</p>
                               </div>
                             )}
                           </div>
                           <div className="space-y-4">
                             <div>
-                              <label className="text-sm font-medium text-gray-500">Standard Price</label>
+                              <label className="text-sm font-medium text-gray-500">{t(lang, 'standardPrice')}</label>
                               <p className="text-xl font-bold text-green-600">{formatCurrency(selectedPart.part.Standard_Price || 0)}</p>
                             </div>
                             <div>
-                              <label className="text-sm font-medium text-gray-500">Dealer Price</label>
+                              <label className="text-sm font-medium text-gray-500">{t(lang, 'dealerPrice')}</label>
                               <p className="text-lg font-semibold text-blue-600">{formatCurrency(selectedPart.part.Dealer_Price || 0)}</p>
                             </div>
                             <div>
-                              <label className="text-sm font-medium text-gray-500">Customer Price</label>
+                              <label className="text-sm font-medium text-gray-500">{t(lang, 'customerPrice')}</label>
                               <p className="text-lg font-semibold text-purple-600">{formatCurrency(selectedPart.part.Customer_Price || 0)}</p>
                             </div>
                             <div>
-                              <label className="text-sm font-medium text-gray-500">Inventory</label>
-                              <p className="text-xl font-semibold">{selectedPart.part.Current_Stock_Qty || 0} units</p>
+                              <label className="text-sm font-medium text-gray-500">{t(lang, 'inventory')}</label>
+                              <p className="text-xl font-semibold">{selectedPart.part.Current_Stock_Qty || 0} {t(lang, 'units')}</p>
                             </div>
                             <div>
-                              <label className="text-sm font-medium text-gray-500">Availability</label>
+                              <label className="text-sm font-medium text-gray-500">{t(lang, 'availability')}</label>
                               <Badge variant={selectedPart.part.Current_Stock_Qty > 0 ? "default" : "secondary"}>
-                                {selectedPart.part.Current_Stock_Qty > 0 ? "In Stock" : "Out of Stock"}
+                                {selectedPart.part.Current_Stock_Qty > 0 ? t(lang, 'inStock') : t(lang, 'outOfStock')}
                               </Badge>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </DialogContent>
+                      )}
+                    </DialogContent>
+                  )}
                 </Dialog>
               </div>
               
@@ -310,7 +320,7 @@ export default function PartsCataloguePage() {
                 <div>
                   <h3 className="font-mono text-xs font-bold text-blue-600 mb-1">{material}</h3>
                   <p className="text-xs text-gray-600 line-clamp-2 min-h-[2rem]">
-                    {resolvePartDescription(lang, part) || 'No description'}
+                    {resolvePartDescription(lang, part) || t(lang, 'noDescription')}
                   </p>
                 </div>
                 
@@ -319,10 +329,10 @@ export default function PartsCataloguePage() {
                   <p className="text-xs text-amber-600 mb-1">📝 {part.notes}</p>
                 )}
                 {part.year && (
-                  <p className="text-xs text-blue-600 mb-1">📅 Year: {part.year}</p>
+                  <p className="text-xs text-blue-600 mb-1">📅 {t(lang, 'year')}: {part.year}</p>
                 )}
                 {part.obsoleted_date && (
-                  <p className="text-xs text-red-600 mb-1">⚠️ Obsoleted: {part.obsoleted_date}</p>
+                  <p className="text-xs text-red-600 mb-1">⚠️ {t(lang, 'obsoletedDate')}: {part.obsoleted_date}</p>
                 )}
                 
                 <div className="text-xs text-gray-500 truncate mb-2">
@@ -331,19 +341,19 @@ export default function PartsCataloguePage() {
                 
                 <div className="border-t pt-2 space-y-1">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500">Dealer:</span>
+                    <span className="text-xs text-gray-500">{t(lang, 'dealer')}:</span>
                     <span className="text-xs font-semibold text-blue-600">
                       {formatCurrency(part.Dealer_Price || 0)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500">Customer:</span>
+                    <span className="text-xs text-gray-500">{t(lang, 'customer')}:</span>
                     <span className="text-xs font-semibold text-purple-600">
                       {formatCurrency(part.Customer_Price || 0)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center pt-1 border-t">
-                    <span className="text-xs text-gray-500">Stock:</span>
+                    <span className="text-xs text-gray-500">{t(lang, 'stock')}:</span>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                       (part.Current_Stock_Qty || 0) > 0 
                         ? 'bg-green-100 text-green-700' 
@@ -420,8 +430,8 @@ export default function PartsCataloguePage() {
       {Object.keys(displayedParts).length === 0 && !loading && (
         <div className="text-center py-16">
           <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No parts found</h3>
-          <p className="text-gray-500">Try adjusting your search criteria or filters</p>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">{t(lang, 'noPartsFound')}</h3>
+          <p className="text-gray-500">{t(lang, 'tryAdjustingSearch')}</p>
         </div>
       )}
     </div>
