@@ -50,7 +50,7 @@ type OpenPoExtraFields = {
 };
 
 type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
-type ViewTab = 'active' | 'cancelled';
+type ViewTab = 'active' | 'cancelled' | 'ageing';
 type ShippingStatusFilter = 'all' | 'intransit' | 'notshipped';
 
 const PAGE_SIZE = 30;
@@ -146,9 +146,12 @@ const normalizeHeader = (value: string) => String(value || '').trim().toLowerCas
 const normalizeDateForInput = (value: string) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
+  if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const m = raw.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  const ymd = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (ymd) return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
+  const dmy = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
   return raw;
 };
 const makeExtraKey = (poNumber: string, poItem: string, part: string) =>
@@ -284,7 +287,7 @@ export default function OpenPoVendor3060Page() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
   const [wrongCodeNotes, setWrongCodeNotes] = useState<Record<string, string>>({});
-  const [wrongCodeFilter, setWrongCodeFilter] = useState<'all' | 'wrongOnly'>('all');
+  const [wrongCodeOnly, setWrongCodeOnly] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const mergeWithOpenPo = (
     uploaded: Record<string, OpenPoItem>,
@@ -427,9 +430,9 @@ export default function OpenPoVendor3060Page() {
     return searchedRows.filter((row) => shippingStatusOf(row) === shippingStatusFilter);
   }, [searchedRows, shippingStatusFilter, extraByPo, searchKeyword]);
   const wrongFilteredRows = useMemo(() => {
-    if (wrongCodeFilter === 'all') return statusFilteredRows;
+    if (!wrongCodeOnly) return statusFilteredRows;
     return statusFilteredRows.filter((row) => !!wrongCodeNotes[makeExtraKey(String(row.po_number || ''), String(row.po_item || ''), String(row.part || ''))]);
-  }, [statusFilteredRows, wrongCodeFilter, wrongCodeNotes]);
+  }, [statusFilteredRows, wrongCodeOnly, wrongCodeNotes]);
   const activeRows = useMemo(() => wrongFilteredRows.filter((row) => !cancelled[keyOf(row)]), [wrongFilteredRows, cancelled]);
   const cancelledRows = useMemo(() => wrongFilteredRows.filter((row) => cancelled[keyOf(row)]), [wrongFilteredRows, cancelled]);
   const visibleRows = searchKeyword.trim() ? wrongFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
@@ -441,6 +444,33 @@ export default function OpenPoVendor3060Page() {
     [visibleRows, extraByPo],
   );
   const displayNumber = (value?: number) => Number(value || 0).toLocaleString();
+  const parseDate = (value?: string) => {
+    const normalized = normalizeDateForInput(value || '');
+    if (!normalized || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
+    const d = new Date(`${normalized}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const daysSince = (value?: string) => {
+    const d = parseDate(value);
+    if (!d) return null;
+    const now = new Date();
+    return Math.max(0, Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)));
+  };
+  const unshippedRowsForAging = useMemo(() => activeRows.filter((row) => shippingStatusOf(row) === 'notshipped'), [activeRows, extraByPo]);
+  const inTransitRowsForAging = useMemo(() => activeRows.filter((row) => shippingStatusOf(row) === 'intransit'), [activeRows, extraByPo]);
+  const unshippedAvgAgingDays = useMemo(() => {
+    const arr = unshippedRowsForAging.map((r) => daysSince(r.orderdate)).filter((v): v is number => v !== null);
+    return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+  }, [unshippedRowsForAging]);
+  const inTransitAvgAgingDays = useMemo(() => {
+    const arr = inTransitRowsForAging.map((r) => {
+      const po = String(r.po_number || '');
+      const extra = extraByPo[makeExtraKey(po, String(r.po_item || ''), r.part || '')] || extraByPo[po] || {};
+      return daysSince(extra.actualShipmentDate);
+    }).filter((v): v is number => v !== null);
+    return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+  }, [inTransitRowsForAging, extraByPo]);
+
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const pagedRows = useMemo(() => {
@@ -448,7 +478,7 @@ export default function OpenPoVendor3060Page() {
     return visibleRows.slice(start, start + PAGE_SIZE);
   }, [visibleRows, currentPage]);
 
-  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter, searchKeyword, wrongCodeFilter]);
+  useEffect(() => { setCurrentPage(1); }, [purchaserFilter, viewTab, shippingStatusFilter, searchKeyword, wrongCodeOnly]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -543,8 +573,8 @@ export default function OpenPoVendor3060Page() {
         part,
         row.vendor || '',
         row.purchasinggroup || '',
-        row.orderdate || '',
-        row.deliverydate || '',
+        normalizeDateForInput(row.orderdate || ''),
+        normalizeDateForInput(row.deliverydate || ''),
         row.orderqty || '',
         row.receivedqty || '',
         row.openqty || '',
@@ -555,11 +585,11 @@ export default function OpenPoVendor3060Page() {
         extra.chassis || '',
         extra.shippingMethod || '',
         extra.category || '',
-        extra.estimatedShipmentDate || '',
+        normalizeDateForInput(extra.estimatedShipmentDate || ''),
         extra.purchasingManager || '',
         extra.supplier || '',
-        extra.plannedArrivalDate || '',
-        extra.actualShipmentDate || '',
+        normalizeDateForInput(extra.plannedArrivalDate || ''),
+        normalizeDateForInput(extra.actualShipmentDate || ''),
         extra.actualShippedQty || '',
         extra.remainingUnshippedQty || '',
         extra.seaFreightChassis || '',
@@ -624,8 +654,8 @@ export default function OpenPoVendor3060Page() {
         return v;
       };
       const headers = parseCsvLine(headerLine);
-      const keyIdx = headers.indexOf(TEMPLATE_PK_HEADER);
-      const legacyKeyIdx = headers.indexOf(LEGACY_TEMPLATE_PK_HEADER);
+      const keyIdx = headers.findIndex((h) => normalizeHeader(h) === normalizeHeader(TEMPLATE_PK_HEADER));
+      const legacyKeyIdx = headers.findIndex((h) => normalizeHeader(h) === normalizeHeader(LEGACY_TEMPLATE_PK_HEADER));
       const compositeKeyIdx = keyIdx !== -1 ? keyIdx : legacyKeyIdx;
       const poIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_number');
       const poItemIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_item');
@@ -657,14 +687,14 @@ export default function OpenPoVendor3060Page() {
         let poNumber = normalizePoValue(String(cells[poIdx] || '').trim());
         let poItem = String(cells[poItemIdx] || '').trim();
         let part = String(cells[partIdx] || '').trim();
-        if ((!poNumber || !part) && compositeKeyIdx !== -1) {
+        if (compositeKeyIdx !== -1) {
           const composite = String(cells[compositeKeyIdx] || '').trim();
           const parts = composite.split('+').map((x) => x.trim());
           if (parts.length >= 3) {
             poNumber = normalizePoValue(parts[0]);
             poItem = parts[1];
             part = parts.slice(2).join('+');
-          } else if (parts.length === 2) {
+          } else if ((!poNumber || !part) && parts.length === 2) {
             poNumber = normalizePoValue(parts[0]);
             part = parts[1];
           }
@@ -695,7 +725,7 @@ export default function OpenPoVendor3060Page() {
         headers.forEach((header, idx) => {
           const field = HEADER_TO_FIELD[header] || HEADER_TO_FIELD[normalizeHeader(header)];
           if (!field) return;
-          let value = String(cells[idx] ?? '');
+          let value = String(cells[idx] ?? '').trim();
           if (field === 'estimatedShipmentDate' || field === 'plannedArrivalDate' || field === 'actualShipmentDate') {
             value = normalizeDateForInput(value);
           }
@@ -801,6 +831,9 @@ export default function OpenPoVendor3060Page() {
         <Button variant={viewTab === 'cancelled' ? 'default' : 'outline'} onClick={() => setViewTab('cancelled')}>
           {lang === 'zh' ? '已取消订单' : 'Cancelled Orders'}
         </Button>
+        <Button variant={viewTab === 'ageing' ? 'default' : 'outline'} onClick={() => setViewTab('ageing')}>
+          {lang === 'zh' ? 'Ageing看板' : 'Ageing Dashboard'}
+        </Button>
       </div>
 
       {/* Purchaser filter */}
@@ -824,10 +857,7 @@ export default function OpenPoVendor3060Page() {
       )}
       {viewTab === 'active' && (
         <div className="flex items-center gap-2">
-          <Button variant={wrongCodeFilter === 'all' ? 'default' : 'outline'} onClick={() => setWrongCodeFilter('all')}>
-            {lang === 'zh' ? '错误料号：全部' : 'Wrong Code: All'}
-          </Button>
-          <Button variant={wrongCodeFilter === 'wrongOnly' ? 'default' : 'outline'} onClick={() => setWrongCodeFilter('wrongOnly')}>
+          <Button variant={wrongCodeOnly ? 'default' : 'outline'} onClick={() => setWrongCodeOnly((v) => !v)}>
             {lang === 'zh' ? '仅错误料号' : 'Wrong Code Only'}
           </Button>
           <Button variant={shippingStatusFilter === 'all' ? 'default' : 'outline'} onClick={() => setShippingStatusFilter('all')}>
@@ -897,7 +927,21 @@ export default function OpenPoVendor3060Page() {
         </Card>
       </div>
 
-      {/* ── Main table ─────────────────────────────────────────────────────────── */}
+      {viewTab === 'ageing' ? (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader><CardTitle>{lang === 'zh' ? '未发货数量' : 'Not Shipped Count'}</CardTitle></CardHeader>
+            <CardContent className="text-4xl font-bold text-amber-600">{unshippedRowsForAging.length}</CardContent>
+            <CardContent className="pt-0 text-sm text-gray-500">{lang === 'zh' ? `平均 Ageing：${unshippedAvgAgingDays} 天（下单日期→今天）` : `Avg ageing: ${unshippedAvgAgingDays} days (order date → today)`}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>{lang === 'zh' ? '在途数量' : 'In Transit Count'}</CardTitle></CardHeader>
+            <CardContent className="text-4xl font-bold text-emerald-600">{inTransitRowsForAging.length}</CardContent>
+            <CardContent className="pt-0 text-sm text-gray-500">{lang === 'zh' ? `平均 Ageing：${inTransitAvgAgingDays} 天（实际发货时间→今天）` : `Avg ageing: ${inTransitAvgAgingDays} days (actual shipment date → today)`}</CardContent>
+          </Card>
+        </div>
+      ) : (
+      /* ── Main table ─────────────────────────────────────────────────────────── */
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -1108,6 +1152,7 @@ export default function OpenPoVendor3060Page() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Pagination */}
       <div className="flex items-center justify-end gap-2">
