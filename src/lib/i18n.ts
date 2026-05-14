@@ -39,7 +39,6 @@ export const labels: Record<string, { zh: string; en: string }> = {
   partCode: { zh: '零件号', en: 'Part Code' },
   partCodeValue: { zh: '零件号:', en: 'Part Code:' },
   description: { zh: '描述', en: 'Description' },
-  supplier: { zh: '供应商', en: 'Supplier' },
   notes: { zh: '备注', en: 'Notes' },
   year: { zh: '年份', en: 'Year' },
   obsoletedDate: { zh: '停产日期', en: 'Obsoleted Date' },
