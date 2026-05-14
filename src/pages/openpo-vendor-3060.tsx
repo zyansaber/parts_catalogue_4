@@ -589,15 +589,6 @@ export default function OpenPoVendor3060Page() {
       const text = await file.text();
       const [headerLine, ...dataLines] = text.split(/\r?\n/).filter((line) => line.trim());
       if (!headerLine) return;
-      const detectDelimiter = (line: string) => {
-        const commaCount = (line.match(/,/g) || []).length;
-        const tabCount = (line.match(/\t/g) || []).length;
-        const semicolonCount = (line.match(/;/g) || []).length;
-        if (tabCount >= commaCount && tabCount >= semicolonCount && tabCount > 0) return '\t';
-        if (semicolonCount > commaCount && semicolonCount > 0) return ';';
-        return ',';
-      };
-      const delimiter = detectDelimiter(headerLine);
       const parseCsvLine = (line: string) => {
         const out: string[] = [];
         let cur = '';
@@ -614,7 +605,7 @@ export default function OpenPoVendor3060Page() {
             inQuotes = !inQuotes;
             continue;
           }
-          if (ch === delimiter && !inQuotes) {
+          if (ch === ',' && !inQuotes) {
             out.push(cur.trim());
             cur = '';
             continue;
@@ -737,11 +728,7 @@ export default function OpenPoVendor3060Page() {
       );
     } catch (error) {
       console.error(error);
-      alert(
-        lang === 'zh'
-          ? '上传失败，请检查文件格式（支持逗号CSV、Tab分隔TSV）以及表头是否与模板一致。'
-          : 'Upload failed. Please check file format (comma CSV or tab-delimited TSV) and ensure headers match the template.',
-      );
+      alert(lang === 'zh' ? '上传失败，请检查 CSV 格式。' : 'Upload failed. Please check CSV format.');
     } finally {
       setUploading(false);
       if (uploadInputRef.current) uploadInputRef.current.value = '';
