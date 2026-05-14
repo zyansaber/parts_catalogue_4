@@ -21,6 +21,7 @@ export interface Part {
   obsoleted_date?: string;
   alternative_parts?: string;
   show_in_catalogue?: boolean;
+  Part_Image_Url?: string;
 }
 
 export interface PartSummaryData {
