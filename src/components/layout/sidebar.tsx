@@ -16,6 +16,7 @@ const navigation = [
   { key: 'openPoAll', href: '/openpo-all', icon: FileText },
   { key: 'partsRequestsApi', href: '/parts-requests-api', icon: FileText },
   { key: 'partsDelivery', href: '/parts-delivery', icon: FileText },
+  { key: 'longtreeOrderReport', href: '/longtree-order-report', icon: BarChart3 },
   { key: 'appAdmin', href: '/app-admin', icon: Settings },
   { key: 'adminPanel', href: '/admin', icon: Settings },
 ] as const;
