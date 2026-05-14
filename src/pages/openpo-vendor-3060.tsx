@@ -632,21 +632,16 @@ export default function OpenPoVendor3060Page() {
         }
         return v;
       };
-      const headers = parseCsvLine(headerLine);
+      const headers = parseCsvLine(headerLine).map((h) => String(h || '').replace(/^\uFEFF/, '').trim());
       const keyIdx = headers.indexOf(TEMPLATE_PK_HEADER);
       const legacyKeyIdx = headers.indexOf(LEGACY_TEMPLATE_PK_HEADER);
       const compositeKeyIdx = keyIdx !== -1 ? keyIdx : legacyKeyIdx;
-      const poIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_number');
-      const poItemIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_item');
-      const partIdx = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'part');
-      if (compositeKeyIdx === -1 && (poIdx === -1 || partIdx === -1)) {
-        alert(
-          lang === 'zh'
-            ? '上传文件缺少“po_number+po_item+part”（兼容“po_number+part”）列（或“po_number”和“part”列）'
-            : 'Missing composite key column “po_number+po_item+part” (legacy “po_number+part” is supported), or PO/Part columns.',
-        );
-        return;
-      }
+      const poIdxRaw = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_number');
+      const poItemIdxRaw = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'po_item');
+      const partIdxRaw = headers.findIndex((h) => BASE_HEADER_ALIASES[normalizeHeader(h)] === 'part');
+      const poIdx = poIdxRaw !== -1 ? poIdxRaw : 1;
+      const poItemIdx = poItemIdxRaw !== -1 ? poItemIdxRaw : 2;
+      const partIdx = partIdxRaw !== -1 ? partIdxRaw : 3;
 
       const prevItemsByKey = items.reduce<Record<string, OpenPoItem>>((acc, row) => {
         const po = String(row.po_number || '').trim();
@@ -661,7 +656,9 @@ export default function OpenPoVendor3060Page() {
       const cancelledUpdates: Record<string, boolean> = {};
       const dbPromises: Promise<void>[] = [];
 
+      let skippedRows = 0;
       dataLines.forEach((line) => {
+        try {
         const cells = parseCsvLine(line);
         let poNumber = normalizePoValue(String(cells[poIdx] || '').trim());
         let poItem = String(cells[poItemIdx] || '').trim();
@@ -678,7 +675,7 @@ export default function OpenPoVendor3060Page() {
             part = parts[1];
           }
         }
-        if (!poNumber || !part) return;
+        if (!poNumber || !part) { skippedRows += 1; return; }
         const extraKey = makeExtraKey(poNumber, poItem, part);
         const yesNo = (v: string) => ['yes', 'y', 'true', '1'].includes(String(v || '').trim().toLowerCase());
         const current = prevItemsByKey[extraKey] || {};
@@ -716,6 +713,10 @@ export default function OpenPoVendor3060Page() {
         if (!Object.keys(patch).length) return;
         updatedLocal[extraKey] = { ...(extraByPo[extraKey] || {}), part, ...patch };
         dbPromises.push(update(ref(database, `app_admin/openpo_vendor_3060_extra/${extraKey}`), { part, ...patch }));
+        } catch (rowError) {
+          console.warn('Skip invalid upload row:', rowError);
+          skippedRows += 1;
+        }
       });
 
       if (Object.keys(rowMap).length) {
@@ -732,8 +733,8 @@ export default function OpenPoVendor3060Page() {
       }
       alert(
         lang === 'zh'
-          ? `上传完成，共更新 ${dbPromises.length} 条记录。`
-          : `Upload complete. Updated ${dbPromises.length} records.`,
+          ? `上传完成，共更新 ${Object.keys(rowMap).length} 条记录，跳过 ${skippedRows} 条异常行。`
+          : `Upload complete. Updated ${Object.keys(rowMap).length} records, skipped ${skippedRows} invalid rows.`,
       );
     } catch (error) {
       console.error(error);
