@@ -517,14 +517,14 @@ export default function OpenPoVendor3060Page() {
   const new7DaysRows = useMemo(() => {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-    return items.filter((row) => {
+    return vendorFiltered.filter((row) => {
       if (!isPostCutoverOrder(row) && cancelled[keyOf(row)]) return false;
       const normalized = normalizeDateForInput(String(row.orderdate || ''));
       if (!normalized) return false;
       const d = new Date(`${normalized}T00:00:00`);
       return !Number.isNaN(d.getTime()) && d >= sevenDaysAgo;
     });
-  }, [items, cancelled]);
+  }, [vendorFiltered, cancelled]);
 
   // Dashboard rows: completely independent of all filters — just non-cancelled items
   const allActiveItems = useMemo(
