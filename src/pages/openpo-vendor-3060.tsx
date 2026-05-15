@@ -578,6 +578,16 @@ export default function OpenPoVendor3060Page() {
       : (daysSince(row.orderdate) ?? 0);
     return { row, extra, status, agingDays };
   }).sort((a, b) => b.agingDays - a.agingDays), [allActiveItems, extraByPo]);
+  const allAgingRows = useMemo(() => allActiveItems.map((row) => {
+    const po = String(row.po_number || '');
+    const extra = extraByPo[makeExtraKey(po, String(row.po_item || ''), row.part || '')] || extraByPo[po] || {};
+    const status = shippingStatusOf(row);
+    const agingDays = status === 'intransit'
+      ? (daysSince(extra.actualShipmentDate) ?? daysSince(row.orderdate) ?? 0)
+      : (daysSince(row.orderdate) ?? 0);
+    return { row, extra, status, agingDays };
+  }), [allActiveItems, extraByPo]);
+
   const unshippedAvgAgingDays = useMemo(() => {
     const arr = unshippedRowsForAging.map((r) => daysSince(r.orderdate)).filter((v): v is number => v !== null);
     return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
@@ -622,13 +632,13 @@ export default function OpenPoVendor3060Page() {
     if (!bucketLabel || (status !== 'notshipped' && status !== 'intransit')) return [];
     const bucket = ageingBuckets.find((b) => b.label === bucketLabel);
     if (!bucket) return [];
-    return dashAirRows
+    return allAgingRows
       .filter((it) => {
         const days = it.agingDays;
         return it.status === status && days >= bucket.min && days <= bucket.max;
       })
       .sort((a, b) => b.agingDays - a.agingDays);
-  }, [selectedAgingBarKey, ageingBuckets, dashAirRows]);
+  }, [selectedAgingBarKey, ageingBuckets, allAgingRows]);
 
 
 
