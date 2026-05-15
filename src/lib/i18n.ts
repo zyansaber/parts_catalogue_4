@@ -95,8 +95,28 @@ export function t(lang: Lang, key: keyof typeof labels): string {
 
 export function resolvePartDescription(
   lang: Lang,
-  descriptions: { SPRAS_EN?: string; SPRAS_ZH?: string }
+  descriptions: {
+    SPRAS_EN?: string;
+    SPRAS_ZH?: string;
+    spras_en?: string;
+    spras_zh?: string;
+    description?: string;
+    Description?: string;
+    description_en?: string;
+    description_zh?: string;
+  }
 ): string {
-  if (lang === 'zh') return descriptions.SPRAS_ZH || descriptions.SPRAS_EN || '';
-  return descriptions.SPRAS_EN || '';
+  const zh =
+    descriptions.SPRAS_ZH ||
+    descriptions.spras_zh ||
+    descriptions.description_zh;
+  const en =
+    descriptions.SPRAS_EN ||
+    descriptions.spras_en ||
+    descriptions.description_en ||
+    descriptions.Description ||
+    descriptions.description;
+
+  if (lang === 'zh') return zh || en || '';
+  return en || zh || '';
 }
