@@ -22,6 +22,7 @@ type OpenPoItem = {
   receivedqty?: number;
   openqty?: number;
   description?: string;
+  shorttext?: string;
   spras_en?: string;
   spras_zh?: string;
   chassisnumber?: string;
@@ -50,7 +51,7 @@ type OpenPoExtraFields = {
 };
 
 type PurchaserFilter = 'all' | 'productionLongtreeOrders' | 'sparePartsOrders';
-type ViewTab = 'active' | 'cancelled' | 'dashboard';
+type ViewTab = 'active' | 'new7days' | 'cancelled' | 'dashboard';
 type ShippingStatusFilter = 'all' | 'intransit' | 'notshipped';
 type ShippingMethodFilter = 'all' | 'air freight' | 'sea freight';
 
@@ -155,6 +156,27 @@ const normalizeDateForInput = (value: string) => {
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
   return raw;
 };
+const ymdNumber = (value?: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const compactDigits = raw.replace(/[^\d]/g, '');
+  if (/^\d{8}$/.test(compactDigits)) return Number(compactDigits);
+  const inlineYmd = raw.match(/(20\d{2})[-/.]?(\d{1,2})[-/.]?(\d{1,2})/);
+  if (inlineYmd) {
+    return Number(`${inlineYmd[1]}${inlineYmd[2].padStart(2, '0')}${inlineYmd[3].padStart(2, '0')}`);
+  }
+  const normalized = normalizeDateForInput(raw);
+  if (!normalized) return null;
+  const digits = normalized.replace(/-/g, '');
+  if (!/^\d{8}$/.test(digits)) return null;
+  return Number(digits);
+};
+const isOnOrAfter = (value: string | undefined, thresholdYmd: number) => {
+  const num = ymdNumber(value);
+  return num !== null && num >= thresholdYmd;
+};
+const isPostCutoverOrder = (row: OpenPoItem) => isOnOrAfter(row.orderdate, 20260507);
+const isVendor3060 = (value?: string) => String(value || '').trim().replace(/^0+/, '') === '3060';
 const makeExtraKey = (poNumber: string, poItem: string, part: string) =>
   `${sanitizeDbKey(String(poNumber || '').trim())}__${sanitizeDbKey(String(poItem || '').trim())}__${sanitizeDbKey(String(part || '').trim())}`;
 
@@ -295,6 +317,7 @@ export default function OpenPoVendor3060Page() {
   const mergeWithOpenPo = (
     uploaded: Record<string, OpenPoItem>,
     openPoRaw: Record<string, OpenPoItem>,
+    openPoHashRaw: Record<string, OpenPoItem>,
   ) => {
     const openPoByKey = Object.values(openPoRaw || {}).reduce<Record<string, OpenPoItem>>((acc, item) => {
       const po = String(item.po_number || '').trim();
@@ -304,12 +327,43 @@ export default function OpenPoVendor3060Page() {
       acc[makeExtraKey(po, poItem, part)] = item;
       return acc;
     }, {});
-    return Object.values(uploaded || {}).map((row) => {
+    const mergedByKey: Record<string, OpenPoItem> = {};
+    Object.values(uploaded || {}).forEach((row) => {
+      const po = String(row.po_number || '').trim();
+      const poItem = String(row.po_item || '').trim();
+      const part = String(row.part || '').trim();
+      if (!po || !part) return;
+      const key = makeExtraKey(po, poItem, part);
+      mergedByKey[key] = row;
+    });
+    Object.values(openPoHashRaw || {}).forEach((row) => {
+      const po = String(row.po_number || '').trim();
+      const poItem = String(row.po_item || '').trim();
+      const part = String(row.part || '').trim();
+      if (!po || !part) return;
+      const key = makeExtraKey(po, poItem, part);
+      const existing = mergedByKey[key];
+      if (!existing || isOnOrAfter(row.orderdate, 20260507)) {
+        mergedByKey[key] = row;
+      }
+    });
+    // 2026-05-07 之后以 production_report/open_po/items 为主数据（source of truth）
+    Object.values(openPoRaw || {}).forEach((row) => {
+      if (!isOnOrAfter(row.orderdate, 20260507)) return;
+      const po = String(row.po_number || '').trim();
+      const poItem = String(row.po_item || '').trim();
+      const part = String(row.part || '').trim();
+      if (!po || !part) return;
+      const key = makeExtraKey(po, poItem, part);
+      mergedByKey[key] = row;
+    });
+    return Object.values(mergedByKey).map((row) => {
       const po = String(row.po_number || '').trim();
       const part = String(row.part || '').trim();
       const poItem = String(row.po_item || '').trim();
       const matched = openPoByKey[makeExtraKey(po, poItem, part)] || {};
       const sapMatched = Boolean(Object.keys(matched).length);
+      const rowDesc = row.spras_en || row.description || row.shorttext;
       return {
         ...matched,
         ...row,
@@ -325,8 +379,9 @@ export default function OpenPoVendor3060Page() {
         orderqty: matched.orderqty ?? row.orderqty,
         receivedqty: matched.receivedqty ?? row.receivedqty,
         openqty: matched.openqty ?? row.openqty,
-        spras_en: matched.spras_en || matched.description || row.spras_en || row.description,
+        spras_en: matched.spras_en || matched.description || rowDesc,
         spras_zh: matched.spras_zh || row.spras_zh,
+        description: matched.description || row.description || row.shorttext,
         chassisnumber: matched.chassisnumber || row.chassisnumber,
         sapMatched,
       } as OpenPoItem;
@@ -343,15 +398,17 @@ export default function OpenPoVendor3060Page() {
     Promise.all([
       get(ref(database, 'app_admin/openpo_vendor_3060_upload/items')),
       get(ref(database, 'production_report/open_po/items')),
+      get(ref(database, 'production_report/open_po/hash/items')),
       FirebaseService.getAllParts(),
       get(ref(database, 'app_admin/purchasing_group_mapping')),
       get(ref(database, 'app_admin/cancelled_openpo')),
       get(ref(database, 'app_admin/openpo_vendor_3060_extra')),
       get(ref(database, 'app_admin/openpo_vendor_3060_wrong_code_notes')),
-    ]).then(([uploadSnap, prodOpenSnap, allParts, mapSnap, cancelSnap, extraSnap, wrongSnap]) => {
+    ]).then(([uploadSnap, prodOpenSnap, prodOpenHashSnap, allParts, mapSnap, cancelSnap, extraSnap, wrongSnap]) => {
       const uploaded = (uploadSnap.val() || {}) as Record<string, OpenPoItem>;
       const prodOpen = (prodOpenSnap.val() || {}) as Record<string, OpenPoItem>;
-      setItems(mergeWithOpenPo(uploaded, prodOpen));
+      const prodOpenHash = (prodOpenHashSnap.val() || {}) as Record<string, OpenPoItem>;
+      setItems(mergeWithOpenPo(uploaded, prodOpen, prodOpenHash));
       const stockMap = Object.entries(allParts || {}).reduce<Record<string, number>>((acc, [material, part]) => {
         const key = String(material || '').trim();
         if (!key) return acc;
@@ -400,7 +457,10 @@ export default function OpenPoVendor3060Page() {
     void initExtras();
   }, [items, extraByPo]);
 
-  const vendorFiltered = useMemo(() => items, [items]);
+  const vendorFiltered = useMemo(
+    () => items.filter((row) => isVendor3060(row.vendor)),
+    [items],
+  );
 
   const filtered = useMemo(() => {
     if (purchaserFilter === 'all') return vendorFiltered;
@@ -446,15 +506,42 @@ export default function OpenPoVendor3060Page() {
     });
   }, [wrongFilteredRows, shippingMethodFilter, extraByPo]);
 
-  const activeRows = useMemo(() => methodFilteredRows.filter((row) => !cancelled[keyOf(row)]), [methodFilteredRows, cancelled]);
-  const cancelledRows = useMemo(() => methodFilteredRows.filter((row) => cancelled[keyOf(row)]), [methodFilteredRows, cancelled]);
+  const activeRows = useMemo(
+    () => methodFilteredRows.filter((row) => isPostCutoverOrder(row) || !cancelled[keyOf(row)]),
+    [methodFilteredRows, cancelled],
+  );
+  const cancelledRows = useMemo(
+    () => methodFilteredRows.filter((row) => !isPostCutoverOrder(row) && cancelled[keyOf(row)]),
+    [methodFilteredRows, cancelled],
+  );
+  const new7DaysRows = useMemo(() => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+    return items.filter((row) => {
+      if (!isPostCutoverOrder(row) && cancelled[keyOf(row)]) return false;
+      const normalized = normalizeDateForInput(String(row.orderdate || ''));
+      if (!normalized) return false;
+      const d = new Date(`${normalized}T00:00:00`);
+      return !Number.isNaN(d.getTime()) && d >= sevenDaysAgo;
+    });
+  }, [items, cancelled]);
 
   // Dashboard rows: completely independent of all filters — just non-cancelled items
   const allActiveItems = useMemo(
     () => items.filter((row) => !cancelled[keyOf(row)]),
     [items, cancelled],
   );
-  const visibleRows = searchKeyword.trim() ? methodFilteredRows : (viewTab === 'cancelled' ? cancelledRows : activeRows);
+  const baseRows = viewTab === 'cancelled'
+    ? cancelledRows
+    : (viewTab === 'new7days' ? new7DaysRows : activeRows);
+  const visibleRows = searchKeyword.trim()
+    ? baseRows.filter((row) => {
+      const keyword = searchKeyword.trim().toLowerCase();
+      const po = String(row.po_number || '').toLowerCase();
+      const part = String(row.part || '').toLowerCase();
+      return po.includes(keyword) || part.includes(keyword);
+    })
+    : baseRows;
 
   const totalOpenQty = useMemo(() => visibleRows.reduce((sum, item) => sum + Number(item.openqty || 0), 0), [visibleRows]);
   const openPoNumber = useMemo(() => new Set(visibleRows.map((x) => x.po_number).filter(Boolean)).size, [visibleRows]);
@@ -798,14 +885,18 @@ export default function OpenPoVendor3060Page() {
 
       if (Object.keys(rowMap).length) {
         await set(ref(database, 'app_admin/openpo_vendor_3060_upload/items'), rowMap);
-        const prodOpenSnap = await get(ref(database, 'production_report/open_po/items'));
+        const [prodOpenSnap, prodOpenHashSnap] = await Promise.all([
+          get(ref(database, 'production_report/open_po/items')),
+          get(ref(database, 'production_report/open_po/hash/items')),
+        ]);
         const prodOpen = (prodOpenSnap.val() || {}) as Record<string, OpenPoItem>;
+        const prodOpenHash = (prodOpenHashSnap.val() || {}) as Record<string, OpenPoItem>;
         if (Object.keys(cancelledUpdates).length) {
           await update(ref(database, 'app_admin/cancelled_openpo'), cancelledUpdates);
           setCancelled((prev) => ({ ...prev, ...cancelledUpdates }));
         }
         if (dbPromises.length) await Promise.all(dbPromises);
-        setItems(mergeWithOpenPo(rowMap, prodOpen));
+        setItems(mergeWithOpenPo(rowMap, prodOpen, prodOpenHash));
         setExtraByPo((prev) => ({ ...prev, ...updatedLocal }));
       }
       alert(
@@ -894,6 +985,13 @@ export default function OpenPoVendor3060Page() {
         </Button>
         <Button
           className="h-8 rounded-md px-4 text-sm"
+          variant={viewTab === 'new7days' ? 'default' : 'ghost'}
+          onClick={() => setViewTab('new7days')}
+        >
+          {lang === 'zh' ? '新订单（7天）' : 'New Orders (7d)'}
+        </Button>
+        <Button
+          className="h-8 rounded-md px-4 text-sm"
           variant={viewTab === 'cancelled' ? 'default' : 'ghost'}
           onClick={() => setViewTab('cancelled')}
         >
@@ -910,7 +1008,14 @@ export default function OpenPoVendor3060Page() {
 
       {/* Purchaser filter */}
       {viewTab === 'active' && (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <Button
+            className="h-14 text-base"
+            variant={purchaserFilter === 'all' ? 'default' : 'outline'}
+            onClick={() => setPurchaserFilter('all')}
+          >
+            {lang === 'zh' ? '全部采购员' : 'All Purchasers'}
+          </Button>
           <Button
             className="h-14 text-base"
             variant={purchaserFilter === 'productionLongtreeOrders' ? 'default' : 'outline'}
@@ -1339,6 +1444,7 @@ export default function OpenPoVendor3060Page() {
                                   src={FirebaseService.getPartImageUrl(r.part || '')}
                                   fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
                                   alt={r.part || 'part'}
+                                  hideFallbackText
                                   className="h-full w-full object-contain"
                                 />
                               </button>
@@ -1349,6 +1455,7 @@ export default function OpenPoVendor3060Page() {
                                   src={FirebaseService.getPartImageUrl(r.part || '')}
                                   fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(r.part || '').slice(1)}
                                   alt={r.part || 'part'}
+                                  hideFallbackText
                                   className="h-full w-full object-contain"
                                 />
                               </div>
