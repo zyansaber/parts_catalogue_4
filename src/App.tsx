@@ -18,7 +18,6 @@ import AppAdminPage from './pages/app-admin';
 import PartsRequestsApiPage from './pages/parts-requests-api';
 import PartsDeliveryPage from './pages/parts-delivery';
 import PartsCatalogueStandalonePage from './pages/parts-catalogue-standalone';
-import LongtreeOrderReportPage from './pages/longtree-order-report';
 
 const queryClient = new QueryClient();
 
@@ -58,7 +57,6 @@ const AppLayout = () => {
             <Route path="/app-admin" element={<AppAdminPage />} />
             <Route path="/parts-requests-api" element={<PartsRequestsApiPage />} />
             <Route path="/parts-delivery" element={<PartsDeliveryPage />} />
-            <Route path="/longtree-order-report" element={<LongtreeOrderReportPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
