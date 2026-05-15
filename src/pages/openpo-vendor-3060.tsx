@@ -304,7 +304,7 @@ export default function OpenPoVendor3060Page() {
   const [shippingStatusFilter, setShippingStatusFilter] = useState<ShippingStatusFilter>('all');
   const [shippingMethodFilter, setShippingMethodFilter] = useState<ShippingMethodFilter>('all');
   const [dashAirExpanded, setDashAirExpanded] = useState(false);
-  const [selectedAgingBucketKey, setSelectedAgingBucketKey] = useState<string | null>(null);
+  const [selectedAgingBarKey, setSelectedAgingBarKey] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [bulkPoInput, setBulkPoInput] = useState('');
@@ -617,16 +617,18 @@ export default function OpenPoVendor3060Page() {
   }, [unshippedRowsForAging, inTransitRowsForAging, extraByPo]);
 
   const selectedAgingRows = useMemo(() => {
-    if (!selectedAgingBucketKey) return [];
-    const bucket = ageingBuckets.find((b) => b.label === selectedAgingBucketKey);
+    if (!selectedAgingBarKey) return [];
+    const [bucketLabel, status] = selectedAgingBarKey.split('__');
+    if (!bucketLabel || (status !== 'notshipped' && status !== 'intransit')) return [];
+    const bucket = ageingBuckets.find((b) => b.label === bucketLabel);
     if (!bucket) return [];
     return dashAirRows
       .filter((it) => {
         const days = it.agingDays;
-        return days >= bucket.min && days <= bucket.max;
+        return it.status === status && days >= bucket.min && days <= bucket.max;
       })
       .sort((a, b) => b.agingDays - a.agingDays);
-  }, [selectedAgingBucketKey, ageingBuckets, dashAirRows]);
+  }, [selectedAgingBarKey, ageingBuckets, dashAirRows]);
 
 
 
@@ -1239,7 +1241,7 @@ export default function OpenPoVendor3060Page() {
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div className="rounded border bg-gray-50 p-3">
                       <div className="mb-2 text-xs font-semibold text-gray-600">{lang === 'zh' ? '点击柱状图后显示订单明细' : 'Click bars to view order details'}</div>
-                      {!selectedAgingBucketKey ? <div className="text-xs text-gray-400">{lang === 'zh' ? '请点击右侧柱状图' : 'Please click a bar on the right chart'}</div> : <div className="max-h-64 overflow-auto"><table className="w-full text-xs"><thead><tr className="border-b"><th className="p-1 text-left">PO</th><th className="p-1 text-left">Part</th><th className="p-1 text-right">Ageing</th><th className="p-1 text-left">Status</th></tr></thead><tbody>{selectedAgingRows.map(({ row, status, agingDays }) => <tr key={keyOf(row)} className="border-b"><td className="p-1">{row.po_number || '-'}</td><td className="p-1">{row.part || '-'}</td><td className="p-1 text-right">{agingDays}d</td><td className="p-1">{status === 'intransit' ? 'In Transit' : 'Not Shipped'}</td></tr>)}</tbody></table></div>}
+                      {!selectedAgingBarKey ? <div className="text-xs text-gray-400">{lang === 'zh' ? '请点击右侧柱状图' : 'Please click a bar on the right chart'}</div> : <div className="max-h-64 overflow-auto"><table className="w-full text-xs"><thead><tr className="border-b"><th className="p-1 text-left">PO</th><th className="p-1 text-left">Part</th><th className="p-1 text-right">Ageing</th><th className="p-1 text-left">Status</th></tr></thead><tbody>{selectedAgingRows.map(({ row, status, agingDays }) => <tr key={keyOf(row)} className="border-b"><td className="p-1">{row.po_number || '-'}</td><td className="p-1">{row.part || '-'}</td><td className="p-1 text-right">{agingDays}d</td><td className="p-1">{status === 'intransit' ? 'In Transit' : 'Not Shipped'}</td></tr>)}</tbody></table></div>}
                     </div>
                     <div className="overflow-x-auto rounded border bg-white p-2">
                     <svg viewBox={`0 0 ${totalW + padL + 24} ${chartH + 64}`} className="w-full" style={{ minWidth: 560 }}>
@@ -1260,9 +1262,11 @@ export default function OpenPoVendor3060Page() {
                         const itY = padT + chartH - itH;
                         return (
                           <g key={bucket.label}>
-                            <rect x={x} y={nsY} width={barW} height={nsH} rx="3" fill="#f59e0b" opacity="0.85" className="cursor-pointer" onClick={() => setSelectedAgingBucketKey(bucket.label)} />
+                            <rect x={x} y={nsY} width={barW} height={nsH} rx="3" fill="#f59e0b" opacity="0.85" className="cursor-pointer" onClick={() => setSelectedAgingBarKey(`${bucket.label}__notshipped`)} />
+                            <rect x={x} y={Math.max(padT, nsY + nsH - Math.max(nsH, 12))} width={barW} height={Math.max(nsH, 12)} fill="transparent" className="cursor-pointer" onClick={() => setSelectedAgingBarKey(`${bucket.label}__notshipped`)} />
                             {bucket.notShipped > 0 && <text x={x + barW / 2} y={nsY - 4} textAnchor="middle" fontSize="10" fill="#92400e" fontWeight="600">{bucket.notShipped}</text>}
-                            <rect x={x + barW + 8} y={itY} width={barW} height={itH} rx="3" fill="#10b981" opacity="0.85" className="cursor-pointer" onClick={() => setSelectedAgingBucketKey(bucket.label)} />
+                            <rect x={x + barW + 8} y={itY} width={barW} height={itH} rx="3" fill="#10b981" opacity="0.85" className="cursor-pointer" onClick={() => setSelectedAgingBarKey(`${bucket.label}__intransit`)} />
+                            <rect x={x + barW + 8} y={Math.max(padT, itY + itH - Math.max(itH, 12))} width={barW} height={Math.max(itH, 12)} fill="transparent" className="cursor-pointer" onClick={() => setSelectedAgingBarKey(`${bucket.label}__intransit`)} />
                             {bucket.inTransit > 0 && <text x={x + barW + 8 + barW / 2} y={itY - 4} textAnchor="middle" fontSize="10" fill="#064e3b" fontWeight="600">{bucket.inTransit}</text>}
                             <text x={x + groupW / 2} y={padT + chartH + 14} textAnchor="middle" fontSize="11" fill="#6b7280" fontWeight="500">{bucket.label}</text>
                           </g>
