@@ -7,7 +7,6 @@ interface ImageWithFallbackProps extends React.ImgHTMLAttributes<HTMLImageElemen
   alt: string;
   className?: string;
   fallbackClassName?: string;
-  hideFallbackText?: boolean;
 }
 
 export function ImageWithFallback({
@@ -16,7 +15,6 @@ export function ImageWithFallback({
   alt,
   className,
   fallbackClassName,
-  hideFallbackText = false,
   ...props
 }: ImageWithFallbackProps) {
   const [currentSrc, setCurrentSrc] = useState(src);
@@ -48,7 +46,7 @@ export function ImageWithFallback({
         fallbackClassName,
         className
       )}>
-        {hideFallbackText ? '' : 'No Image'}
+        No Image
       </div>
     );
   }
