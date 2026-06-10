@@ -18,6 +18,7 @@ import AppAdminPage from './pages/app-admin';
 import PartsRequestsApiPage from './pages/parts-requests-api';
 import PartsDeliveryPage from './pages/parts-delivery';
 import PartsCatalogueStandalonePage from './pages/parts-catalogue-standalone';
+import TruckAndChassisManagementPage from './pages/truck-and-chassis-management';
 
 const queryClient = new QueryClient();
 
@@ -57,6 +58,7 @@ const AppLayout = () => {
             <Route path="/app-admin" element={<AppAdminPage />} />
             <Route path="/parts-requests-api" element={<PartsRequestsApiPage />} />
             <Route path="/parts-delivery" element={<PartsDeliveryPage />} />
+            <Route path="/truck-and-chassis-management" element={<TruckAndChassisManagementPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
