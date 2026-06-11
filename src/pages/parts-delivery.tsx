@@ -31,7 +31,7 @@ const ticketFirebaseConfig = {
 
 const app = getApps().some((a) => a.name === 'ticketsApp') ? getApp('ticketsApp') : initializeApp(ticketFirebaseConfig, 'ticketsApp');
 const ticketDb = getDatabase(app);
-const makeExtraKey = (po: string, poItem: string, part: string) => `${po}__${poItem}__${part}`.replace(/[.#$[\]/]/g, '_');
+const makeExtraKey = (po: string, poItem: string, part: string) => `${po}__${poItem}__${part}`.replace(/[.#$\[\]/]/g, '_');
 const parseDate = (v?: string) => { if (!v) return null; const d = new Date(v); return Number.isNaN(d.getTime()) ? null : d; };
 const daysSince = (v?: string) => { const d = parseDate(v); if (!d) return 0; return Math.max(0, Math.floor((Date.now() - d.getTime()) / ONE_DAY)); };
 
