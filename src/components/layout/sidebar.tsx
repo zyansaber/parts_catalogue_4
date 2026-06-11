@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { Package, FileText, PlusCircle, Settings, BarChart3, Camera } from 'lucide-react';
+import { Package, FileText, PlusCircle, Settings, BarChart3, Camera, Truck } from 'lucide-react';
 import { getLang, setLang, t } from '@/lib/i18n';
 import { useEffect, useState } from 'react';
 
@@ -16,6 +16,7 @@ const navigation = [
   { key: 'openPoAll', href: '/openpo-all', icon: FileText },
   { key: 'partsRequestsApi', href: '/parts-requests-api', icon: FileText },
   { key: 'partsDelivery', href: '/parts-delivery', icon: FileText },
+  { key: 'truckAndChassisManagement', href: '/truck-and-chassis-management', icon: Truck },
   { key: 'appAdmin', href: '/app-admin', icon: Settings },
   { key: 'adminPanel', href: '/admin', icon: Settings },
 ] as const;
