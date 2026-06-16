@@ -46,6 +46,12 @@ const isBeforeToday = (value?: string) => {
   return d < t;
 };
 const csvCell = (v: string | number) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+const getRequiredQty = (row: SummaryItem, mode: Mode) =>
+  mode === 'sea'
+    ? Number(row.sea_required_qty || 0) + Number(row.nosea_required_qty || 0)
+    : Number(row.nosea_required_qty || 0);
+const getStillRequiredQty = (row: Row, mode: Mode) => (mode === 'sea' ? row.effSea : row.effNoSea);
+const getExcessQty = (row: Row, mode: Mode) => Number(row.stock_qty || 0) + row.openPoQtyTotal - getStillRequiredQty(row, mode);
 
 export default function ProductionRequiredAnalysisPage() {
   const [lang, setLang] = useState<Lang>(getLang());
@@ -167,16 +173,29 @@ export default function ProductionRequiredAnalysisPage() {
   };
 
   const downloadCsv = () => {
-    const mainHeaders = ['Part', 'Description', 'Required', 'Issued', 'Still Required', 'Inventory', 'Shortage Type', 'Shortage Qty'];
+    const mainHeaders = [
+      'Part',
+      'Description',
+      'Required',
+      'Issued',
+      'Still Required',
+      'Inventory',
+      'Open PO Qty',
+      'Excess Qty',
+      'Shortage Type',
+      'Shortage Qty',
+    ];
     const mainRows = filtered.map((r) => {
       const shortage = mode === 'sea' ? r.shortageSea : r.shortageNoSea;
       return [
         r.part || '',
         r.description || '',
-        mode === 'sea' ? Number(r.sea_required_qty || 0) + Number(r.nosea_required_qty || 0) : Number(r.nosea_required_qty || 0),
+        getRequiredQty(r, mode),
         Number(r.issued_qty || 0),
-        mode === 'sea' ? r.effSea : r.effNoSea,
+        getStillRequiredQty(r, mode),
         Number(r.stock_qty || 0),
+        r.openPoQtyTotal,
+        getExcessQty(r, mode),
         shortage < 0 ? (mode === 'sea' ? 'Potential Shortage' : 'Critical Shortage') : 'Healthy',
         shortage,
       ];
@@ -305,7 +324,7 @@ export default function ProductionRequiredAnalysisPage() {
       {/* Table */}
       <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1380px] border-collapse text-sm">
+          <table className="w-full min-w-[1480px] border-collapse text-sm">
             <thead className="bg-muted/50">
               <tr>
                 <th className="w-[120px] border-b px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -329,6 +348,9 @@ export default function ProductionRequiredAnalysisPage() {
                 <th className="w-[80px] border-b px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {lang === 'zh' ? '库存' : 'Inventory'}
                 </th>
+                <th className="w-[95px] border-b px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {lang === 'zh' ? '超额数量' : 'Excess Qty'}
+                </th>
                 <th className="w-[180px] border-b px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {lang === 'zh' ? '状态' : 'Status'}
                 </th>
@@ -346,7 +368,7 @@ export default function ProductionRequiredAnalysisPage() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-3 py-16 text-center text-sm text-muted-foreground">
+                  <td colSpan={12} className="px-3 py-16 text-center text-sm text-muted-foreground">
                     {lang === 'zh' ? '没有符合条件的记录' : 'No matching records'}
                   </td>
                 </tr>
@@ -354,11 +376,9 @@ export default function ProductionRequiredAnalysisPage() {
                 filtered.map((r) => {
                   const v = notes[r.normPart] || { part: r.normPart, note_eta: '', updated_at: '' };
                   const visibleChassisDetails = mode === 'sea' ? r.chassisDetails : r.chassisDetails.filter((item) => !item.isSea);
-                  const required =
-                    mode === 'sea'
-                      ? Number(r.sea_required_qty || 0) + Number(r.nosea_required_qty || 0)
-                      : Number(r.nosea_required_qty || 0);
-                  const stillRequired = mode === 'sea' ? r.effSea : r.effNoSea;
+                  const required = getRequiredQty(r, mode);
+                  const stillRequired = getStillRequiredQty(r, mode);
+                  const excessQty = getExcessQty(r, mode);
                   const isCritical = r.shortageNoSea < 0;
                   const isPotential = !isCritical && r.shortageSea < 0;
 
@@ -408,6 +428,9 @@ export default function ProductionRequiredAnalysisPage() {
                       </td>
                       <td className="px-3 py-3 text-right align-middle font-mono text-sm tabular-nums">
                         {Number(r.stock_qty || 0)}
+                      </td>
+                      <td className="px-3 py-3 text-right align-middle font-mono text-sm font-semibold tabular-nums">
+                        {excessQty}
                       </td>
                       <td className="px-3 py-3 align-middle">
                         {isCritical ? (
