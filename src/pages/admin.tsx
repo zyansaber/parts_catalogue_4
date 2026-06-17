@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Search, Save, AlertTriangle, Image, FileText, BarChart3, Camera } from 'lucide-react';
+import { Upload, Search, Save, AlertTriangle, Image, FileText, BarChart3, Camera, Plus, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,6 +42,8 @@ export default function AdminPage() {
   const [debugPartCode, setDebugPartCode] = useState('');
   const [debugChecking, setDebugChecking] = useState(false);
   const [debugResults, setDebugResults] = useState<Array<{ url: string; ok: boolean }>>([]);
+  const [applicationRequesters, setApplicationRequesters] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [emailSettings, setEmailSettings] = useState({ notifyEmail: '', subjectPrefix: 'Part Application' });
   const detectedCfBase = (import.meta.env.VITE_CF_PUBLIC_BASE || '').trim();
   const detectedR2Base = (import.meta.env.VITE_R2_PUBLIC_BASE || DEFAULT_R2_PUBLIC_BASE).trim();
 
@@ -57,6 +59,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     loadParts();
+    loadApplicationAdminConfig();
   }, []);
 
   // Filter parts based on search
@@ -101,6 +104,43 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadApplicationAdminConfig = async () => {
+    const [requesters, settings] = await Promise.all([
+      FirebaseService.getApplicationRequesters(),
+      FirebaseService.getApplicationEmailSettings()
+    ]);
+    setApplicationRequesters(requesters.length ? requesters : [{ id: crypto.randomUUID(), name: '', email: '' }]);
+    setEmailSettings({ notifyEmail: settings.notifyEmail || '', subjectPrefix: settings.subjectPrefix || 'Part Application' });
+  };
+
+  const saveApplicationAdminConfig = async () => {
+    const validRequesters = applicationRequesters
+      .map((item) => ({ ...item, name: item.name.trim(), email: item.email.trim() }))
+      .filter((item) => item.name && item.email);
+    if (validRequesters.length !== applicationRequesters.filter((item) => item.name.trim() || item.email.trim()).length) {
+      showMessage('error', 'Each requester must have both name and email.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await Promise.all([
+        FirebaseService.saveApplicationRequesters(validRequesters),
+        FirebaseService.saveApplicationEmailSettings(emailSettings)
+      ]);
+      setApplicationRequesters(validRequesters.length ? validRequesters : [{ id: crypto.randomUUID(), name: '', email: '' }]);
+      showMessage('success', 'Application requesters and email settings saved.');
+    } catch (error) {
+      console.error('Error saving application admin config:', error);
+      showMessage('error', 'Failed to save application admin config');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateRequester = (id: string, field: 'name' | 'email', value: string) => {
+    setApplicationRequesters((prev) => prev.map((item) => item.id === id ? { ...item, [field]: value } : item));
   };
 
   const showMessage = (type: 'success' | 'error', text: string) => {
@@ -272,6 +312,77 @@ export default function AdminPage() {
           {message.text}
         </div>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Application Requesters & EmailJS Settings</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3">
+            {applicationRequesters.map((requester) => (
+              <div key={requester.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
+                <Input
+                  value={requester.name}
+                  onChange={(e) => updateRequester(requester.id, 'name', e.target.value)}
+                  placeholder="Requester name"
+                />
+                <Input
+                  value={requester.email}
+                  onChange={(e) => updateRequester(requester.id, 'email', e.target.value)}
+                  placeholder="Requester email"
+                  type="email"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setApplicationRequesters((prev) => prev.filter((item) => item.id !== requester.id))}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setApplicationRequesters((prev) => [...prev, { id: crypto.randomUUID(), name: '', email: '' }])}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add requester
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t pt-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Submission notification email</label>
+              <Input
+                value={emailSettings.notifyEmail}
+                onChange={(e) => setEmailSettings((prev) => ({ ...prev, notifyEmail: e.target.value }))}
+                placeholder="person@example.com"
+                type="email"
+              />
+              <p className="text-xs text-gray-500 mt-1">New application emails are sent here.</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Email subject prefix</label>
+              <Input
+                value={emailSettings.subjectPrefix}
+                onChange={(e) => setEmailSettings((prev) => ({ ...prev, subjectPrefix: e.target.value }))}
+                placeholder="Part Application"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
+            <p className="font-medium">EmailJS template: template_rij27hq</p>
+            <p>Render env names: VITE_EMAILJS_SERVICE_ID and VITE_EMAILJS_PUBLIC_KEY. EmailJS private key is intentionally not used in the browser.</p>
+          </div>
+
+          <Button onClick={saveApplicationAdminConfig} disabled={isSaving}>
+            <Save className="h-4 w-4 mr-2" />
+            Save application email settings
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Dashboard Stats */}
       <Card>
