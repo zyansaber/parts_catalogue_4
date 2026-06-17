@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Download, Plus, Eye, CheckCircle, Image, Copy, Upload } from 'lucide-react';
+import { FileText, Download, Plus, Eye, CheckCircle, Image, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { TranslationService } from '@/services/translation';
 import { PDFService } from '@/services/pdf';
 import { FirebaseService } from '@/services/firebase';
+import { EmailService } from '@/services/email';
 import { ref, get, set } from 'firebase/database';
 import { database } from '@/lib/firebase';
 
@@ -29,6 +30,23 @@ interface PartApplication {
   status: 'pending' | 'approved' | 'rejected';
   imageUrl?: string;
   partCode?: string;
+  requesterId?: string;
+  requesterName?: string;
+  requesterEmail?: string;
+  supplierSapCode?: string;
+  applicationFileUrl?: string;
+  applicationFileName?: string;
+}
+
+interface ApplicationRequester {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface ApplicationEmailSettings {
+  notifyEmail: string;
+  subjectPrefix?: string;
 }
 
 export default function PartApplicationPage() {
@@ -45,14 +63,20 @@ export default function PartApplicationPage() {
   const [partCode, setPartCode] = useState('');
   const [partCodeImage, setPartCodeImage] = useState<File | null>(null);
   const [partCodeImagePreview, setPartCodeImagePreview] = useState<string | null>(null);
+  const [requesters, setRequesters] = useState<ApplicationRequester[]>([]);
+  const [emailSettings, setEmailSettings] = useState<ApplicationEmailSettings>({ notifyEmail: '' });
+  const [applicationFile, setApplicationFile] = useState<File | null>(null);
+  const [partCodeDrafts, setPartCodeDrafts] = useState<Record<string, string>>({});
   
   // Form state
   const [formData, setFormData] = useState({
+    requesterId: '',
     requestedBy: '',
     department: '',
     priority: 'medium' as 'low' | 'medium' | 'high',
     specifications: '',
     supplier: '',
+    supplierSapCode: '',
     standardPrice: '',
     notes: ''
   });
@@ -60,7 +84,17 @@ export default function PartApplicationPage() {
   // Load applications from Firebase on component mount
   useEffect(() => {
     loadApplications();
+    loadApplicationConfig();
   }, []);
+
+  const loadApplicationConfig = async () => {
+    const [loadedRequesters, loadedEmailSettings] = await Promise.all([
+      FirebaseService.getApplicationRequesters(),
+      FirebaseService.getApplicationEmailSettings()
+    ]);
+    setRequesters(loadedRequesters);
+    setEmailSettings(loadedEmailSettings);
+  };
 
   const loadApplications = async () => {
     setLoading(true);
@@ -83,16 +117,19 @@ export default function PartApplicationPage() {
 
   const resetForm = () => {
     setFormData({
+      requesterId: '',
       requestedBy: '',
       department: '',
       priority: 'medium',
       specifications: '',
       supplier: '',
+      supplierSapCode: '',
       standardPrice: '',
       notes: ''
     });
     setSelectedFile(null);
     setImagePreview(null);
+    setApplicationFile(null);
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -158,13 +195,8 @@ export default function PartApplicationPage() {
     e.preventDefault();
     
     // Validate required fields
-    if (!formData.requestedBy || !formData.department || !formData.specifications || !formData.supplier || !formData.standardPrice) {
+    if (!formData.requesterId || !formData.supplier || !formData.supplierSapCode || !formData.standardPrice || !applicationFile) {
       showMessage('error', 'Please fill in all required fields');
-      return;
-    }
-
-    if (!selectedFile) {
-      showMessage('error', 'Please upload an image');
       return;
     }
 
@@ -174,20 +206,45 @@ export default function PartApplicationPage() {
       // Generate application ID
       const applicationId = generateApplicationId();
       
-      // Upload image with application ID as filename
-      const imageUrl = await FirebaseService.uploadPartApplicationImage(selectedFile, applicationId);
+      const selectedRequester = requesters.find((requester) => requester.id === formData.requesterId);
+      const imageUrl = selectedFile ? await FirebaseService.uploadPartApplicationImage(selectedFile, applicationId) : '';
+      const applicationFileUrl = await FirebaseService.uploadApplicationAttachment(applicationFile, applicationId);
 
       // Create application object
       const newApplication: PartApplication = {
         ...formData,
         id: applicationId,
+        requestedBy: selectedRequester?.name || formData.requestedBy,
+        requesterName: selectedRequester?.name || formData.requestedBy,
+        requesterEmail: selectedRequester?.email || '',
         submittedAt: new Date().toISOString(),
         status: 'pending',
-        imageUrl
+        imageUrl,
+        applicationFileUrl,
+        applicationFileName: applicationFile.name
       };
 
       // Save to Firebase
       await FirebaseService.savePartApplication(newApplication);
+
+      if (emailSettings.notifyEmail) {
+        await EmailService.sendApplicationEmail({
+          emailType: 'submitted',
+          toEmail: emailSettings.notifyEmail,
+          requesterName: newApplication.requesterName || newApplication.requestedBy,
+          requesterEmail: newApplication.requesterEmail || '',
+          applicationId,
+          supplier: newApplication.supplier,
+          supplierSapCode: newApplication.supplierSapCode || '',
+          standardPrice: newApplication.standardPrice,
+          specifications: newApplication.specifications,
+          notes: newApplication.notes,
+          applicationFileUrl,
+          imageUrl,
+          submittedAt: newApplication.submittedAt,
+          subjectPrefix: emailSettings.subjectPrefix,
+        });
+      }
 
       // Reload applications from database
       await loadApplications();
@@ -201,6 +258,57 @@ export default function PartApplicationPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleInlinePartCodeSave = async (application: PartApplication) => {
+    const code = (partCodeDrafts[application.id] || '').trim();
+    if (!code) {
+      showMessage('error', 'Please enter a part code');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await FirebaseService.approvePartApplication(application.id, code);
+      if (application.requesterEmail) {
+        await EmailService.sendApplicationEmail({
+          emailType: 'part_code_completed',
+          toEmail: application.requesterEmail,
+          requesterName: application.requesterName || application.requestedBy,
+          requesterEmail: application.requesterEmail,
+          applicationId: application.id,
+          supplier: application.supplier,
+          supplierSapCode: application.supplierSapCode || '',
+          standardPrice: application.standardPrice,
+          specifications: application.specifications,
+          notes: application.notes,
+          partCode: code,
+          applicationFileUrl: application.applicationFileUrl,
+          imageUrl: application.imageUrl,
+          submittedAt: application.submittedAt,
+          subjectPrefix: emailSettings.subjectPrefix,
+        });
+      }
+      await loadApplications();
+      setPartCodeDrafts((prev) => ({ ...prev, [application.id]: '' }));
+      showMessage('success', `Application ${application.id} completed with part code ${code}.`);
+    } catch (error) {
+      console.error('Error saving part code:', error);
+      showMessage('error', 'Failed to save part code');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const downloadTemplate = () => {
+    const content = ['Requested By,Requester Email,Preferred Supplier,Preferred Supplier SAP Code,Standard Price,Specifications,Notes', ''].join('\n');
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'part-application-template.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
   };
 
   const handleApprove = async () => {
@@ -334,92 +442,103 @@ export default function PartApplicationPage() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="requestedBy">Requested By *</Label>
-                    <Input
-                      id="requestedBy"
-                      value={formData.requestedBy}
-                      onChange={(e) => setFormData(prev => ({ ...prev, requestedBy: e.target.value }))}
-                      placeholder="Enter your name"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="department">Department *</Label>
-                    <Input
-                      id="department"
-                      value={formData.department}
-                      onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))}
-                      placeholder="Enter department"
-                      required
-                    />
-                  </div>
+                <div>
+                  <Label htmlFor="requester">Requester *</Label>
+                  <Select value={formData.requesterId} onValueChange={(value) => {
+                    const requester = requesters.find((item) => item.id === value);
+                    setFormData(prev => ({
+                      ...prev,
+                      requesterId: value,
+                      requestedBy: requester?.name || ''
+                    }));
+                  }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={requesters.length ? 'Select requester' : 'No requesters configured in /admin'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {requesters.map((requester) => (
+                        <SelectItem key={requester.id} value={requester.id}>
+                          {requester.name} ({requester.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="priority">Priority</Label>
-                    <Select value={formData.priority} onValueChange={(value: 'low' | 'medium' | 'high') => 
-                      setFormData(prev => ({ ...prev, priority: value }))}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="supplier">Preferred Supplier *</Label>
+                    <Input
+                      id="supplier"
+                      value={formData.supplier}
+                      onChange={(e) => setFormData(prev => ({ ...prev, supplier: e.target.value }))}
+                      placeholder="Enter supplier name"
+                      required
+                    />
                   </div>
 
                   <div>
-                    <Label htmlFor="standardPrice">Standard Price *</Label>
+                    <Label htmlFor="supplierSapCode">Preferred Supplier SAP Code *</Label>
                     <Input
-                      id="standardPrice"
-                      type="number"
-                      step="0.01"
-                      value={formData.standardPrice}
-                      onChange={(e) => setFormData(prev => ({ ...prev, standardPrice: e.target.value }))}
-                      placeholder="Enter standard price"
+                      id="supplierSapCode"
+                      value={formData.supplierSapCode}
+                      onChange={(e) => setFormData(prev => ({ ...prev, supplierSapCode: e.target.value }))}
+                      placeholder="Enter supplier SAP code"
                       required
                     />
                   </div>
                 </div>
 
                 <div>
-                  <Label htmlFor="specifications">Specifications *</Label>
+                  <Label htmlFor="standardPrice">Standard Price *</Label>
+                  <Input
+                    id="standardPrice"
+                    type="number"
+                    step="0.01"
+                    value={formData.standardPrice}
+                    onChange={(e) => setFormData(prev => ({ ...prev, standardPrice: e.target.value }))}
+                    placeholder="Enter standard price"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="specifications">Specifications</Label>
                   <Textarea
                     id="specifications"
                     value={formData.specifications}
                     onChange={(e) => setFormData(prev => ({ ...prev, specifications: e.target.value }))}
                     placeholder="Describe the part specifications and requirements"
                     rows={3}
-                    required
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="supplier">Preferred Supplier *</Label>
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="applicationFile">Application File *</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={downloadTemplate}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Download Template
+                    </Button>
+                  </div>
                   <Input
-                    id="supplier"
-                    value={formData.supplier}
-                    onChange={(e) => setFormData(prev => ({ ...prev, supplier: e.target.value }))}
-                    placeholder="Enter supplier name"
+                    id="applicationFile"
+                    type="file"
+                    accept=".csv,.xlsx,.xls,.pdf,.doc,.docx,image/*"
+                    onChange={(e) => setApplicationFile(e.target.files?.[0] || null)}
                     required
                   />
+                  {applicationFile && <p className="text-xs text-gray-500 mt-1">Selected: {applicationFile.name}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="image">Part Image *</Label>
+                  <Label htmlFor="image">Part Image (optional)</Label>
                   <div className="space-y-3">
                     <Input
                       id="image"
                       type="file"
                       accept="image/*"
                       onChange={handleFileSelect}
-                      required
                     />
                     {imagePreview && (
                       <div className="border rounded-lg p-3">
@@ -507,12 +626,23 @@ export default function PartApplicationPage() {
                       </div>
                       
                       <div className="text-xs text-gray-600">
-                        <p><strong>Requested by:</strong> {app.requestedBy}</p>
-                        <p><strong>Department:</strong> {app.department}</p>
+                        <p><strong>Requested by:</strong> {app.requesterName || app.requestedBy}</p>
+                        <p><strong>Email:</strong> {app.requesterEmail || 'N/A'}</p>
                         <p><strong>Supplier:</strong> {app.supplier}</p>
+                        <p><strong>Supplier SAP Code:</strong> {app.supplierSapCode || 'N/A'}</p>
                         <p><strong>Standard Price:</strong> ${app.standardPrice}</p>
                       </div>
                       
+                      {app.applicationFileUrl && (
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>Application: {app.applicationFileName || 'uploaded file'}</span>
+                          <Button variant="ghost" size="sm" onClick={() => window.open(app.applicationFileUrl, '_blank', 'noopener,noreferrer')} className="h-6 px-2 text-xs">
+                            <Download className="h-3 w-3 mr-1" />
+                            Open
+                          </Button>
+                        </div>
+                      )}
+
                       {app.imageUrl && (
                         <div className="flex items-center justify-between text-xs text-gray-500">
                           <div className="flex items-center space-x-1">
@@ -531,6 +661,20 @@ export default function PartApplicationPage() {
                         </div>
                       )}
                       
+                      {app.status === 'pending' && (
+                        <div className="flex gap-2">
+                          <Input
+                            value={partCodeDrafts[app.id] || ''}
+                            onChange={(e) => setPartCodeDrafts((prev) => ({ ...prev, [app.id]: e.target.value }))}
+                            placeholder="Enter part code"
+                            className="h-8 text-xs"
+                          />
+                          <Button size="sm" onClick={() => handleInlinePartCodeSave(app)} disabled={isSubmitting}>
+                            Save
+                          </Button>
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between">
                         <Badge variant="outline" className={getPriorityColor(app.priority)}>
                           {app.priority} priority
@@ -561,7 +705,17 @@ export default function PartApplicationPage() {
                                 </div>
                                 <div><strong>Specifications:</strong> {app.specifications}</div>
                                 {app.notes && <div><strong>Notes:</strong> {app.notes}</div>}
-                                {app.imageUrl && (
+                                {app.applicationFileUrl && (
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>Application: {app.applicationFileName || 'uploaded file'}</span>
+                          <Button variant="ghost" size="sm" onClick={() => window.open(app.applicationFileUrl, '_blank', 'noopener,noreferrer')} className="h-6 px-2 text-xs">
+                            <Download className="h-3 w-3 mr-1" />
+                            Open
+                          </Button>
+                        </div>
+                      )}
+
+                      {app.imageUrl && (
                                   <div>
                                     <strong>Part Image:</strong>
                                     <div className="mt-2 space-y-2">
