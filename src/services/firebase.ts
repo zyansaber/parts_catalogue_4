@@ -465,22 +465,16 @@ export class FirebaseService {
   static async savePartApplication(application: any): Promise<void> {
     try {
       await set(ref(database, `partApplications/${application.id}`), {
-        requesterId: application.requesterId || '',
-        requesterName: application.requesterName || application.requestedBy || '',
-        requesterEmail: application.requesterEmail || '',
-        requestedBy: application.requestedBy || application.requesterName || '',
-        department: application.department || '',
-        priority: application.priority || 'medium',
-        specifications: application.specifications || '',
+        requestedBy: application.requestedBy,
+        department: application.department,
+        priority: application.priority,
+        specifications: application.specifications,
         supplier: application.supplier,
-        supplierSapCode: application.supplierSapCode,
         standardPrice: application.standardPrice,
         notes: application.notes,
         submittedAt: application.submittedAt,
         status: application.status,
-        imageUrl: application.imageUrl || '',
-        applicationFileUrl: application.applicationFileUrl || '',
-        applicationFileName: application.applicationFileName || ''
+        imageUrl: application.imageUrl
       });
     } catch (error) {
       console.error('Error saving application:', error);
@@ -513,62 +507,6 @@ export class FirebaseService {
       return await this.uploadToCloudflareR2(file, `${applicationId}.png`, file.type || 'image/png');
     } catch (error) {
       console.error('Error uploading application image:', error);
-      throw error;
-    }
-  }
-
-  static async uploadApplicationAttachment(file: File, applicationId: string): Promise<string> {
-    try {
-      const extension = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
-      return await this.uploadToCloudflareR2(file, `applications/${applicationId}.${extension}`, file.type || 'application/octet-stream');
-    } catch (error) {
-      console.error('Error uploading application attachment:', error);
-      throw error;
-    }
-  }
-
-  static async getApplicationRequesters(): Promise<any[]> {
-    try {
-      const snapshot = await get(ref(database, 'applicationConfig/requesters'));
-      if (!snapshot.exists()) return [];
-      const data = snapshot.val();
-      return Object.keys(data).map((key) => ({ id: key, ...data[key] }));
-    } catch (error) {
-      console.error('Error loading application requesters:', error);
-      return [];
-    }
-  }
-
-  static async saveApplicationRequesters(requesters: any[]): Promise<void> {
-    try {
-      const data = requesters.reduce((acc, requester) => {
-        if (requester.id && requester.name && requester.email) {
-          acc[requester.id] = requester;
-        }
-        return acc;
-      }, {} as Record<string, any>);
-      await set(ref(database, 'applicationConfig/requesters'), data);
-    } catch (error) {
-      console.error('Error saving application requesters:', error);
-      throw error;
-    }
-  }
-
-  static async getApplicationEmailSettings(): Promise<any> {
-    try {
-      const snapshot = await get(ref(database, 'applicationConfig/emailSettings'));
-      return snapshot.exists() ? snapshot.val() : { notifyEmail: '', subjectPrefix: 'Part Application', serviceId: '', publicKey: '', privateKey: '' };
-    } catch (error) {
-      console.error('Error loading application email settings:', error);
-      return { notifyEmail: '', subjectPrefix: 'Part Application', serviceId: '', publicKey: '', privateKey: '' };
-    }
-  }
-
-  static async saveApplicationEmailSettings(settings: any): Promise<void> {
-    try {
-      await set(ref(database, 'applicationConfig/emailSettings'), settings);
-    } catch (error) {
-      console.error('Error saving application email settings:', error);
       throw error;
     }
   }
