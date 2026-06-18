@@ -1,259 +1,171 @@
 import jsPDF from 'jspdf';
-
-const DEFAULT_R2_PUBLIC_BASE = 'https://pub-7e56631fd9fb4c6e9686364d876155f8.r2.dev';
 import html2canvas from 'html2canvas';
 import { PartApplication } from '@/types';
-import { formatDate, formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDate } from '@/lib/utils';
+
+const DEFAULT_R2_PUBLIC_BASE = 'https://pub-7e56631fd9fb4c6e9686364d876155f8.r2.dev';
+
+const safeText = (value: unknown, fallback = 'N/A') => {
+  if (value === undefined || value === null || value === '') return fallback;
+  return String(value);
+};
+
+const escapeHtml = (value: unknown) => safeText(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 
 export class PDFService {
   static async generateApplicationPDF(application: PartApplication): Promise<void> {
     const pdf = new jsPDF('p', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 20;
-    const contentWidth = pageWidth - 2 * margin;
+    const margin = 10;
+    const contentWidth = pageWidth - margin * 2;
 
-    // Generate English version only
-    await this.generateEnglishPage(pdf, application, pageWidth, pageHeight, margin, contentWidth);
+    const container = this.createBilingualPdfElement(application);
+    document.body.appendChild(container);
 
-    // Save PDF
-    const filename = `${application.ticket_id}_application.pdf`;
-    pdf.save(filename);
+    try {
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const imgHeight = (canvas.height * contentWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = margin;
+
+      pdf.addImage(imgData, 'PNG', margin, position, contentWidth, imgHeight);
+      heightLeft -= pageHeight - margin * 2;
+
+      while (heightLeft > 0) {
+        pdf.addPage();
+        position = heightLeft - imgHeight + margin;
+        pdf.addImage(imgData, 'PNG', margin, position, contentWidth, imgHeight);
+        heightLeft -= pageHeight - margin * 2;
+      }
+
+      pdf.save(`${application.ticket_id}_application.pdf`);
+    } finally {
+      document.body.removeChild(container);
+    }
   }
 
-  private static async generateEnglishPage(
-    pdf: jsPDF, 
-    application: PartApplication, 
-    pageWidth: number, 
-    pageHeight: number, 
-    margin: number, 
-    contentWidth: number
-  ): Promise<void> {
-    let yPosition = margin;
+  private static createBilingualPdfElement(application: PartApplication): HTMLDivElement {
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-10000px';
+    container.style.top = '0';
+    container.style.width = '794px';
+    container.style.background = '#ffffff';
+    container.style.color = '#111827';
+    container.style.fontFamily = 'Arial, "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
+    container.style.padding = '32px';
+    container.style.boxSizing = 'border-box';
 
-    // Set font
-    pdf.setFont('helvetica');
+    const imageUrl = this.resolveImageUrl(application);
+    const statusZh = application.status === 'approved' ? '已批准' : application.status === 'rejected' ? '已拒绝' : '待处理';
+    const urgencyZh = application.urgency === 'high' ? '高' : application.urgency === 'low' ? '低' : '中';
 
-    // Header
-    pdf.setFontSize(20);
-    pdf.setFont('helvetica', 'bold');
-    const title = 'Part Application Form';
-    pdf.text(title, pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 15;
+    container.innerHTML = `
+      <div style="border-bottom: 3px solid #2563eb; padding-bottom: 16px; margin-bottom: 24px;">
+        <h1 style="margin: 0; font-size: 28px; color: #1f2937;">Part Application Form / 零件申请表</h1>
+        <p style="margin: 8px 0 0; color: #6b7280;">Generated / 生成时间: ${escapeHtml(new Date().toLocaleString())}</p>
+      </div>
 
-    // Ticket ID
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`Ticket ID: ${application.ticket_id}`, margin, yPosition);
-    yPosition += 10;
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px;">
+        ${this.infoBox('Application ID / 申请编号', application.ticket_id)}
+        ${this.infoBox('Status / 状态', `${application.status.toUpperCase()} / ${statusZh}`)}
+        ${this.infoBox('Application Date / 申请日期', formatDate(application.created_at))}
+        ${this.infoBox('Priority / 优先级', `${application.urgency.toUpperCase()} / ${urgencyZh}`)}
+      </div>
 
-    // Date
-    pdf.text(`Application Date: ${formatDate(application.created_at)}`, margin, yPosition);
-    yPosition += 15;
+      ${this.section('Requester Information / 申请人信息', [
+        ['Requested By / 申请人', application.requested_by],
+        ['Requester Email / 申请人邮箱', application.requester_email],
+        ['Department / 部门', application.department],
+      ])}
 
-    // Status and Urgency
-    pdf.setFontSize(10);
-    pdf.text(`Status: ${application.status.toUpperCase()}`, margin, yPosition);
-    pdf.text(`Urgency: ${application.urgency.toUpperCase()}`, margin + 60, yPosition);
-    yPosition += 15;
+      ${this.section('Part Information / 零件信息', [
+        ['Part Code / 零件编码', application.part_code || application.part_number],
+        ['Part Name / 零件名称', application.part_name || application.part_description],
+        ['Supplier / 供应商', application.supplier_name],
+        ['Supplier SAP Code / 供应商SAP编码', application.supplier_sap_code],
+        ['Standard Price / 标准价格', formatCurrency(application.estimated_cost || 0)],
+        ['Price Effective Date / 价格生效日期', application.price_effective_date],
+        ['Unit / 单位', application.unit],
+        ['Is Pack / 是否为Pack', application.is_pack ? 'Yes / 是' : 'No / 否'],
+        ...(application.is_pack ? [['Pack Quantity / Pack数量', `1 pack = ${application.pack_quantity || 'N/A'} ${application.unit || 'unit'}`] as [string, unknown]] : []),
+      ])}
 
-    // Main content
-    pdf.setFontSize(12);
-    
-    // Part Information Section
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Part Information', margin, yPosition);
-    yPosition += 8;
-    
-    pdf.setFont('helvetica', 'normal');
-    
-    const fields = [
-      { label: 'Part Number:', value: application.part_number },
-      { label: 'Supplier:', value: application.supplier_name },
-      { label: 'Description:', value: application.part_description }
-    ];
+      ${this.textSection('Specifications / 规格说明', application.technical_specs || application.part_description)}
+      ${this.textSection('Notes / 备注', application.application_notes)}
+      ${application.rejection_reason ? this.textSection('Rejection Reason / 拒绝原因', application.rejection_reason) : ''}
 
-    fields.forEach(field => {
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(field.label, margin, yPosition);
-      pdf.setFont('helvetica', 'normal');
-      
-      const lines = pdf.splitTextToSize(field.value, contentWidth - 40);
-      pdf.text(lines, margin + 40, yPosition);
-      yPosition += lines.length * 5 + 3;
-    });
+      ${imageUrl ? `
+        <div style="margin-top: 24px; page-break-inside: avoid;">
+          <h2 style="font-size: 18px; margin: 0 0 12px; color: #1f2937;">Part Image / 零件图片</h2>
+          <div style="border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; background: #f9fafb; text-align: center;">
+            <img src="${escapeHtml(imageUrl)}" alt="Part image" crossorigin="anonymous" style="max-width: 100%; max-height: 360px; object-fit: contain;" />
+          </div>
+        </div>` : ''}
 
-    yPosition += 5;
+      <div style="margin-top: 32px; border-top: 1px solid #e5e7eb; padding-top: 12px; color: #6b7280; font-size: 12px; text-align: center;">
+        Parts Application System / 零件申请系统
+      </div>
+    `;
 
-    // Request Information Section
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Request Information', margin, yPosition);
-    yPosition += 8;
-    
-    pdf.setFont('helvetica', 'normal');
-    
-    const requestFields = [
-      { label: 'Requested By:', value: application.requested_by },
-      { label: 'Department:', value: application.department },
-      { label: 'Estimated Cost:', value: formatCurrency(application.estimated_cost || 0) }
-    ];
+    return container;
+  }
 
-    requestFields.forEach(field => {
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(field.label, margin, yPosition);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(field.value, margin + 40, yPosition);
-      yPosition += 7;
-    });
+  private static section(title: string, rows: Array<[string, unknown]>) {
+    return `
+      <div style="margin-bottom: 22px; page-break-inside: avoid;">
+        <h2 style="font-size: 18px; margin: 0 0 10px; color: #1f2937;">${escapeHtml(title)}</h2>
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+          <tbody>
+            ${rows.map(([label, value]) => `
+              <tr>
+                <td style="width: 34%; border: 1px solid #e5e7eb; padding: 8px; background: #f9fafb; font-weight: 700;">${escapeHtml(label)}</td>
+                <td style="border: 1px solid #e5e7eb; padding: 8px;">${escapeHtml(value)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 
-    yPosition += 5;
+  private static textSection(title: string, value?: string) {
+    if (!value) return '';
+    return `
+      <div style="margin-bottom: 22px; page-break-inside: avoid;">
+        <h2 style="font-size: 18px; margin: 0 0 10px; color: #1f2937;">${escapeHtml(title)}</h2>
+        <div style="white-space: pre-wrap; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; font-size: 14px; line-height: 1.6;">${escapeHtml(value)}</div>
+      </div>
+    `;
+  }
 
-    // Technical Specifications
-    if (application.technical_specs) {
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Technical Specifications', margin, yPosition);
-      yPosition += 8;
-      
-      pdf.setFont('helvetica', 'normal');
-      const techLines = pdf.splitTextToSize(application.technical_specs, contentWidth);
-      pdf.text(techLines, margin, yPosition);
-      yPosition += techLines.length * 5 + 10;
-    }
+  private static infoBox(label: string, value: unknown) {
+    return `
+      <div style="border: 1px solid #dbeafe; border-radius: 10px; padding: 12px; background: #eff6ff;">
+        <div style="font-size: 12px; color: #2563eb; font-weight: 700; margin-bottom: 4px;">${escapeHtml(label)}</div>
+        <div style="font-size: 15px; font-weight: 700; color: #1f2937;">${escapeHtml(value)}</div>
+      </div>
+    `;
+  }
 
-    // Business Justification
-    if (application.justification) {
-      if (yPosition > pageHeight - 60) {
-        pdf.addPage();
-        yPosition = margin;
-      }
+  private static resolveImageUrl(application: PartApplication) {
+    if (application.image_url) return application.image_url;
 
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Business Justification', margin, yPosition);
-      yPosition += 8;
-      
-      pdf.setFont('helvetica', 'normal');
-      const justificationLines = pdf.splitTextToSize(application.justification, contentWidth);
-      pdf.text(justificationLines, margin, yPosition);
-      yPosition += justificationLines.length * 5 + 10;
-    }
-
-    // Additional Notes
-    if (application.application_notes) {
-      if (yPosition > pageHeight - 40) {
-        pdf.addPage();
-        yPosition = margin;
-      }
-
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Additional Notes', margin, yPosition);
-      yPosition += 8;
-      
-      pdf.setFont('helvetica', 'normal');
-      const notesLines = pdf.splitTextToSize(application.application_notes, contentWidth);
-      pdf.text(notesLines, margin, yPosition);
-      yPosition += notesLines.length * 5 + 10;
-    }
-
-    // Add image if available - ENSURE IMAGE IS INCLUDED
-    // Try multiple image sources: direct URL and Firebase storage URL with ticket ID
-    const imageUrls = [];
-    
-    if (application.image_url) {
-      imageUrls.push(application.image_url);
-    }
-    
-    // Also try Cloudflare public URLs with ticket ID
     const publicBase = (import.meta.env.VITE_CF_PUBLIC_BASE || import.meta.env.VITE_R2_PUBLIC_BASE || DEFAULT_R2_PUBLIC_BASE).trim().replace(/\/+$/, '');
-    if (publicBase) {
-      imageUrls.push(`${publicBase}/partsfolder/${application.ticket_id}.jpg`);
-      imageUrls.push(`${publicBase}/partsfolder/${application.ticket_id}.png`);
-      imageUrls.push(`${publicBase}/${application.ticket_id}.jpg`);
-      imageUrls.push(`${publicBase}/${application.ticket_id}.png`);
-    }
-
-    for (const imageUrl of imageUrls) {
-      try {
-        // Check if we need a new page for image
-        if (yPosition > pageHeight - 100) {
-          pdf.addPage();
-          yPosition = margin;
-        }
-
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('Attached Image', margin, yPosition);
-        yPosition += 10;
-
-        // Create a temporary image element
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        
-        const imageLoaded = await new Promise((resolve) => {
-          img.onload = () => {
-            try {
-              const canvas = document.createElement('canvas');
-              const ctx = canvas.getContext('2d');
-              
-              // Calculate dimensions to fit within PDF
-              const maxWidth = contentWidth;
-              const maxHeight = 120; // Increased height for better visibility
-              
-              let { width, height } = img;
-              const aspectRatio = width / height;
-              
-              if (width > maxWidth) {
-                width = maxWidth;
-                height = width / aspectRatio;
-              }
-              
-              if (height > maxHeight) {
-                height = maxHeight;
-                width = height * aspectRatio;
-              }
-              
-              canvas.width = width * 4; // Higher resolution
-              canvas.height = height * 4;
-              
-              if (ctx) {
-                // Set high-quality rendering
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = 'high';
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                
-                const imgData = canvas.toDataURL('image/jpeg', 0.9);
-                pdf.addImage(imgData, 'JPEG', margin, yPosition, width, height);
-                
-                yPosition += height + 10;
-                console.log('Image successfully added to PDF from:', imageUrl);
-              }
-              
-              resolve(true);
-            } catch (error) {
-              console.warn('Error processing image from', imageUrl, ':', error);
-              resolve(false);
-            }
-          };
-          
-          img.onerror = () => {
-            console.warn('Failed to load image from:', imageUrl);
-            resolve(false);
-          };
-          
-          img.src = imageUrl;
-        });
-
-        if (imageLoaded) {
-          break; // Successfully loaded image, no need to try other URLs
-        }
-      } catch (error) {
-        console.warn('Failed to add image from', imageUrl, ':', error);
-        continue; // Try next URL
-      }
-    }
-
-    // Footer
-    const footerY = pageHeight - 15;
-    pdf.setFontSize(8);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`Generated: ${new Date().toLocaleDateString()} | Parts Application System`, pageWidth / 2, footerY, { align: 'center' });
+    const imageKey = application.part_code || application.ticket_id;
+    return publicBase && imageKey ? `${publicBase}/partsfolder/${imageKey}.png` : '';
   }
 }
