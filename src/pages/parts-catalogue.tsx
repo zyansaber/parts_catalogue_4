@@ -209,8 +209,8 @@ export default function PartsCataloguePage() {
             <CardContent className="p-3">
               <div className="aspect-square mb-3 relative bg-gray-50 rounded-lg overflow-hidden">
                 <ImageWithFallback
-                  src={part.Part_Image_Url || FirebaseService.getPartImageUrl(material)}
-                  fallbackSrcs={part.Part_Image_Url ? FirebaseService.getPartImageUrlWithFallback(material) : FirebaseService.getPartImageUrlWithFallback(material).slice(1)}
+                  src={FirebaseService.getPartImageUrl(material)}
+                  fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(material).slice(1)}
                   alt={resolvePartDescription(lang, part) || material}
                   className="w-full h-full object-contain"
                   fallbackClassName="w-full h-full rounded-lg flex items-center justify-center text-gray-400 text-sm"
@@ -234,8 +234,8 @@ export default function PartsCataloguePage() {
                       <div className="space-y-6">
                         <div className="aspect-video bg-gray-50 rounded-lg overflow-hidden">
                           <ImageWithFallback
-                            src={selectedPart.part.Part_Image_Url || FirebaseService.getPartImageUrl(selectedPart.material)}
-                            fallbackSrcs={selectedPart.part.Part_Image_Url ? FirebaseService.getPartImageUrlWithFallback(selectedPart.material) : FirebaseService.getPartImageUrlWithFallback(selectedPart.material).slice(1)}
+                            src={FirebaseService.getPartImageUrl(selectedPart.material)}
+                            fallbackSrcs={FirebaseService.getPartImageUrlWithFallback(selectedPart.material).slice(1)}
                             alt={resolvePartDescription(lang, selectedPart.part) || selectedPart.material}
                             className="w-full h-full object-contain"
                             fallbackClassName="w-full h-full rounded-lg flex items-center justify-center text-gray-400"
