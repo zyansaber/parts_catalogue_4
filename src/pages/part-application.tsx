@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Download, Plus, Eye, CheckCircle, Image, Upload } from 'lucide-react';
+import { FileText, Download, Plus, Eye, CheckCircle, Image, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,8 +14,6 @@ import { TranslationService } from '@/services/translation';
 import { PDFService } from '@/services/pdf';
 import { FirebaseService } from '@/services/firebase';
 import { EmailService } from '@/services/email';
-import { ref, get, set } from 'firebase/database';
-import { database } from '@/lib/firebase';
 
 interface PartApplication {
   id: string;
@@ -25,6 +23,11 @@ interface PartApplication {
   specifications: string;
   supplier: string;
   standardPrice: string;
+  partName: string;
+  priceEffectiveDate: string;
+  unit: string;
+  isPack: boolean;
+  packQuantity: string;
   notes: string;
   submittedAt: string;
   status: 'pending' | 'approved' | 'rejected';
@@ -36,6 +39,8 @@ interface PartApplication {
   supplierSapCode?: string;
   applicationFileUrl?: string;
   applicationFileName?: string;
+  rejectionReason?: string;
+  rejectedAt?: string;
 }
 
 interface ApplicationRequester {
@@ -66,13 +71,18 @@ export default function PartApplicationPage() {
   const [partCode, setPartCode] = useState('');
   const [partCodeImage, setPartCodeImage] = useState<File | null>(null);
   const [partCodeImagePreview, setPartCodeImagePreview] = useState<string | null>(null);
+  const [rejectDialog, setRejectDialog] = useState<{ open: boolean; application: PartApplication | null }>({
+    open: false,
+    application: null
+  });
+  const [rejectionReason, setRejectionReason] = useState('');
   const [requesters, setRequesters] = useState<ApplicationRequester[]>([]);
   const [emailSettings, setEmailSettings] = useState<ApplicationEmailSettings>({ notifyEmail: '' });
   const [applicationFile, setApplicationFile] = useState<File | null>(null);
   const [partCodeDrafts, setPartCodeDrafts] = useState<Record<string, string>>({});
   const [submissionMode, setSubmissionMode] = useState<'single' | 'bulk'>('single');
-  const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'pending' | 'approved'>('all');
-  
+  const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'pending' | 'approved'>('pending');
+
   // Form state
   const [formData, setFormData] = useState({
     requesterId: '',
@@ -83,7 +93,13 @@ export default function PartApplicationPage() {
     supplier: '',
     supplierSapCode: '',
     standardPrice: '',
-    notes: ''
+    partName: '',
+    priceEffectiveDate: '',
+    unit: '',
+    isPack: false,
+    packQuantity: '',
+    notes: '',
+    requesterEmail: ''
   });
 
   // Load applications from Firebase on component mount
@@ -130,7 +146,13 @@ export default function PartApplicationPage() {
       supplier: '',
       supplierSapCode: '',
       standardPrice: '',
-      notes: ''
+      partName: '',
+      priceEffectiveDate: '',
+      unit: '',
+      isPack: false,
+      packQuantity: '',
+      notes: '',
+      requesterEmail: ''
     });
     setSelectedFile(null);
     setImagePreview(null);
@@ -179,12 +201,12 @@ export default function PartApplicationPage() {
       link.download = filename;
       link.target = '_blank'; // 在新窗口打开，避免CORS问题
       link.rel = 'noopener noreferrer';
-      
+
       // 添加到DOM，点击，然后移除
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       showMessage('success', `Opening download for ${filename}. If download doesn't start, right-click the image and select "Save image as..."`);
     } catch (error) {
       console.error('Error downloading image:', error);
@@ -239,15 +261,27 @@ export default function PartApplicationPage() {
       const supplier = row.preferred_supplier || row.supplier || '';
       const supplierSapCode = row.preferred_supplier_sap_code || row.supplier_sap_code || '';
       const standardPrice = row.standard_price || row.price || '';
-      if (!supplier || !supplierSapCode || !standardPrice) {
-        throw new Error(`Row ${index + 2} is missing Preferred Supplier, Preferred Supplier SAP Code, or Standard Price.`);
+      const partName = row.part_name || row.name || '';
+      const priceEffectiveDate = row.price_effective_date || row.effective_date || '';
+      const unit = row.unit || '';
+      const isPackValue = (row.is_pack || row.pack || '').toLowerCase();
+      const isPack = ['yes', 'true', '1', 'y'].includes(isPackValue);
+      const packQuantity = row.pack_quantity || row.pack_qty || '';
+      const specifications = row.specifications || '';
+      if (!supplier || !supplierSapCode || !standardPrice || !partName || !priceEffectiveDate || !unit || !isPackValue || !specifications || (isPack && !packQuantity)) {
+        throw new Error(`Row ${index + 2} is missing required fields. Bulk rows need Preferred Supplier, Preferred Supplier SAP Code, Standard Price, Part Name, Price Effective Date, Unit, Is Pack, Specifications, and Pack Quantity when Is Pack is yes.`);
       }
 
       return {
         supplier,
         supplierSapCode,
         standardPrice,
-        specifications: row.specifications || '',
+        partName,
+        priceEffectiveDate,
+        unit,
+        isPack,
+        packQuantity,
+        specifications,
         notes: row.notes || '',
       };
     });
@@ -267,6 +301,11 @@ export default function PartApplicationPage() {
       supplier: application.supplier,
       supplierSapCode: application.supplierSapCode || '',
       standardPrice: application.standardPrice,
+      partName: application.partName,
+      priceEffectiveDate: application.priceEffectiveDate,
+      unit: application.unit,
+      isPack: application.isPack,
+      packQuantity: application.packQuantity,
       specifications: application.specifications,
       notes: application.notes,
       applicationFileUrl,
@@ -281,15 +320,23 @@ export default function PartApplicationPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedRequester = requesters.find((requester) => requester.id === formData.requesterId);
+    const isManualRequester = formData.requesterId === 'manual';
+    const selectedRequester = isManualRequester
+      ? { id: 'manual', name: formData.requestedBy.trim(), email: formData.requesterEmail.trim() }
+      : requesters.find((requester) => requester.id === formData.requesterId);
 
     if (!formData.requesterId || !selectedRequester) {
-      showMessage('error', 'Please select a requester');
+      showMessage('error', 'Please select a requester or choose manual entry');
       return;
     }
 
-    if (submissionMode === 'single' && (!formData.supplier || !formData.supplierSapCode || !formData.standardPrice)) {
-      showMessage('error', 'Please fill in all required fields');
+    if (isManualRequester && (!formData.requestedBy.trim() || !formData.requesterEmail.trim())) {
+      showMessage('error', 'Please enter requester name and email');
+      return;
+    }
+
+    if (submissionMode === 'single' && (!formData.supplier || !formData.supplierSapCode || !formData.standardPrice || !formData.partName || !formData.priceEffectiveDate || !formData.unit || !formData.specifications || (formData.isPack && !formData.packQuantity) || !selectedFile)) {
+      showMessage('error', 'Please fill in all required fields and upload a part image');
       return;
     }
 
@@ -338,6 +385,11 @@ export default function PartApplicationPage() {
             supplier: `Bulk upload (${createdApplications.length} applications)`,
             supplierSapCode: 'Multiple',
             standardPrice: 'Multiple',
+            partName: 'Multiple',
+            priceEffectiveDate: 'Multiple',
+            unit: 'Multiple',
+            isPack: false,
+            packQuantity: '',
             specifications: `Bulk upload file: ${applicationFile.name}`,
           }, uploadedFileUrl);
         } catch (emailError) {
@@ -395,7 +447,7 @@ export default function PartApplicationPage() {
     }
     setIsSubmitting(true);
     try {
-      await FirebaseService.approvePartApplication(application.id, code);
+      const partImageUrl = await FirebaseService.approvePartApplication(application.id, code);
       let emailWarning = '';
       if (application.requesterEmail) {
         try {
@@ -411,8 +463,13 @@ export default function PartApplicationPage() {
             specifications: application.specifications,
             notes: application.notes,
             partCode: code,
+            imageUrl: partImageUrl || application.imageUrl,
+            partName: application.partName,
+            priceEffectiveDate: application.priceEffectiveDate,
+            unit: application.unit,
+            isPack: application.isPack,
+            packQuantity: application.packQuantity,
             applicationFileUrl: application.applicationFileUrl,
-            imageUrl: application.imageUrl,
             submittedAt: application.submittedAt,
             subjectPrefix: emailSettings.subjectPrefix,
             serviceId: emailSettings.serviceId,
@@ -437,8 +494,8 @@ export default function PartApplicationPage() {
 
   const downloadTemplate = () => {
     const content = [
-      'Preferred Supplier,Preferred Supplier SAP Code,Standard Price,Specifications,Notes',
-      'Example Supplier,SAP12345,100.00,Example specification,Example note'
+      'Preferred Supplier,Preferred Supplier SAP Code,Standard Price,Part Name,Price Effective Date,Unit,Is Pack,Pack Quantity,Specifications,Notes',
+      'Example Supplier,SAP12345,100.00,Example part name,2026-06-18,PCS,yes,10,Required specification,Optional note'
     ].join('\n');
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -458,38 +515,21 @@ export default function PartApplicationPage() {
 
     setIsSubmitting(true);
     try {
-      // Update application status and part code
-      await FirebaseService.approvePartApplication(approveDialog.application.id, partCode.trim());
-      
-      // If user uploaded a new image for the part code, upload it
+      let replacementImageUrl = '';
       if (partCodeImage) {
-        try {
-          const newImageUrl = await FirebaseService.uploadPartImageWithCode(partCodeImage, partCode.trim());
-          
-          // Update the application with the new part code image URL
-          const appRef = ref(database, `partApplications/${approveDialog.application.id}`);
-          const appSnapshot = await get(appRef);
-          if (appSnapshot.exists()) {
-            const currentData = appSnapshot.val();
-            const updatedData = {
-              ...currentData,
-              partCodeImageUrl: newImageUrl
-            };
-            await set(appRef, updatedData);
-          }
-          
-          showMessage('success', `Application ${approveDialog.application.id} approved! Part code image uploaded as ${partCode}.png successfully.`);
-        } catch (uploadError) {
-          console.error('Error uploading part code image:', uploadError);
-          showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. Image upload failed but approval succeeded.`);
-        }
-      } else {
-        showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. You can manually download the original image and save it with the part code name.`);
+        replacementImageUrl = await FirebaseService.uploadPartImageWithCode(partCodeImage, partCode.trim());
       }
 
-      // Reload applications to reflect the changes
+      await FirebaseService.approvePartApplication(
+        approveDialog.application.id,
+        partCode.trim(),
+        replacementImageUrl,
+      );
+
+      showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. Image saved to the parts catalogue as ${partCode}.png.`);
+
       await loadApplications();
-      
+
       setApproveDialog({ open: false, application: null });
       setPartCode('');
       setPartCodeImage(null);
@@ -502,17 +542,84 @@ export default function PartApplicationPage() {
     }
   };
 
+  const handleReject = async () => {
+    if (!rejectDialog.application) {
+      return;
+    }
+
+    const reason = rejectionReason.trim();
+    if (!reason) {
+      showMessage('error', 'Please enter a rejection reason');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await FirebaseService.rejectPartApplication(rejectDialog.application.id, reason);
+      let emailWarning = '';
+      if (rejectDialog.application.requesterEmail) {
+        try {
+          await EmailService.sendApplicationEmail({
+            emailType: 'rejected',
+            toEmail: rejectDialog.application.requesterEmail,
+            requesterName: rejectDialog.application.requesterName || rejectDialog.application.requestedBy,
+            requesterEmail: rejectDialog.application.requesterEmail,
+            applicationId: rejectDialog.application.id,
+            supplier: rejectDialog.application.supplier,
+            supplierSapCode: rejectDialog.application.supplierSapCode || '',
+            standardPrice: rejectDialog.application.standardPrice,
+            partName: rejectDialog.application.partName,
+            priceEffectiveDate: rejectDialog.application.priceEffectiveDate,
+            unit: rejectDialog.application.unit,
+            isPack: rejectDialog.application.isPack,
+            packQuantity: rejectDialog.application.packQuantity,
+            specifications: rejectDialog.application.specifications,
+            notes: rejectDialog.application.notes,
+            rejectionReason: reason,
+            imageUrl: rejectDialog.application.imageUrl,
+            submittedAt: rejectDialog.application.submittedAt,
+            subjectPrefix: emailSettings.subjectPrefix,
+            serviceId: emailSettings.serviceId,
+            publicKey: emailSettings.publicKey,
+            privateKey: emailSettings.privateKey,
+          });
+        } catch (emailError) {
+          console.error('Rejection email failed:', emailError);
+          emailWarning = ` Email failed: ${emailError instanceof Error ? emailError.message : 'Unknown EmailJS error'}`;
+        }
+      }
+
+      await loadApplications();
+      setRejectDialog({ open: false, application: null });
+      setRejectionReason('');
+      showMessage(emailWarning ? 'error' : 'success', `Application ${rejectDialog.application.id} rejected.${emailWarning}`);
+    } catch (error) {
+      console.error('Error rejecting application:', error);
+      showMessage('error', 'Failed to reject application');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const downloadPDF = async (application: PartApplication) => {
     try {
       setIsSubmitting(true);
-      
+
       // Convert to the expected PartApplication format from types/index.ts
       const pdfApplication = {
         ticket_id: application.id,
         supplier_name: application.supplier || 'N/A',
-        part_description: application.specifications,
-        part_number: `APP-${application.id}`,
-        requested_by: application.requestedBy,
+        part_description: application.specifications || application.partName,
+        part_number: application.partCode || '',
+        part_name: application.partName,
+        price_effective_date: application.priceEffectiveDate,
+        unit: application.unit,
+        is_pack: application.isPack,
+        pack_quantity: application.packQuantity,
+        supplier_sap_code: application.supplierSapCode,
+        requester_email: application.requesterEmail,
+        rejection_reason: application.rejectionReason,
+        requested_by: application.requesterName || application.requestedBy,
         department: application.department,
         urgency: application.priority,
         technical_specs: application.specifications,
@@ -521,7 +628,8 @@ export default function PartApplicationPage() {
         justification: 'Part application request',
         status: application.status,
         created_at: new Date(application.submittedAt).getTime(),
-        image_url: application.imageUrl // Ensure image URL is included
+        image_url: application.imageUrl, // Ensure image URL is included
+        part_code: application.partCode
       };
 
       await PDFService.generateApplicationPDF(pdfApplication);
@@ -594,13 +702,15 @@ export default function PartApplicationPage() {
                     setFormData(prev => ({
                       ...prev,
                       requesterId: value,
-                      requestedBy: requester?.name || ''
+                      requestedBy: value === 'manual' ? prev.requestedBy : requester?.name || '',
+                      requesterEmail: value === 'manual' ? prev.requesterEmail : requester?.email || ''
                     }));
                   }}>
                     <SelectTrigger>
-                      <SelectValue placeholder={requesters.length ? 'Select requester' : 'No requesters configured in /admin'} />
+                      <SelectValue placeholder={requesters.length ? 'Select requester' : 'Select requester or enter manually'} />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="manual">Manual entry</SelectItem>
                       {requesters.map((requester) => (
                         <SelectItem key={requester.id} value={requester.id}>
                           {requester.name} ({requester.email})
@@ -608,6 +718,31 @@ export default function PartApplicationPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {formData.requesterId === 'manual' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                      <div>
+                        <Label htmlFor="manualRequesterName">Requester Name *</Label>
+                        <Input
+                          id="manualRequesterName"
+                          value={formData.requestedBy}
+                          onChange={(e) => setFormData(prev => ({ ...prev, requestedBy: e.target.value }))}
+                          placeholder="Enter requester name"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="manualRequesterEmail">Requester Email *</Label>
+                        <Input
+                          id="manualRequesterEmail"
+                          type="email"
+                          value={formData.requesterEmail}
+                          onChange={(e) => setFormData(prev => ({ ...prev, requesterEmail: e.target.value }))}
+                          placeholder="name@example.com"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 rounded-lg border p-2">
@@ -653,38 +788,109 @@ export default function PartApplicationPage() {
                       </div>
                     </div>
 
-                    <div>
-                      <Label htmlFor="standardPrice">Standard Price *</Label>
-                      <Input
-                        id="standardPrice"
-                        type="number"
-                        step="0.01"
-                        value={formData.standardPrice}
-                        onChange={(e) => setFormData(prev => ({ ...prev, standardPrice: e.target.value }))}
-                        placeholder="Enter standard price"
-                        required={submissionMode === 'single'}
-                      />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <Label htmlFor="standardPrice">Standard Price *</Label>
+                        <Input
+                          id="standardPrice"
+                          type="number"
+                          step="0.01"
+                          value={formData.standardPrice}
+                          onChange={(e) => setFormData(prev => ({ ...prev, standardPrice: e.target.value }))}
+                          placeholder="Enter standard price"
+                          required={submissionMode === 'single'}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="partName">Part Name *</Label>
+                        <Input
+                          id="partName"
+                          value={formData.partName}
+                          onChange={(e) => setFormData(prev => ({ ...prev, partName: e.target.value }))}
+                          placeholder="Enter part name"
+                          required={submissionMode === 'single'}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="priceEffectiveDate">Price Effective Date *</Label>
+                        <Input
+                          id="priceEffectiveDate"
+                          type="date"
+                          value={formData.priceEffectiveDate}
+                          onChange={(e) => setFormData(prev => ({ ...prev, priceEffectiveDate: e.target.value }))}
+                          required={submissionMode === 'single'}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 rounded-lg border p-3">
+                      <div>
+                        <Label htmlFor="unit">Unit *</Label>
+                        <Input
+                          id="unit"
+                          value={formData.unit}
+                          onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+                          placeholder="e.g. PCS, SET, M"
+                          required={submissionMode === 'single'}
+                        />
+                      </div>
+
+                      <label htmlFor="isPack" className="flex items-center gap-2 pt-6 text-sm font-medium">
+                        <input
+                          id="isPack"
+                          type="checkbox"
+                          checked={formData.isPack}
+                          onChange={(e) => setFormData(prev => ({
+                            ...prev,
+                            isPack: e.target.checked,
+                            packQuantity: e.target.checked ? prev.packQuantity : ''
+                          }))}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        Is Pack?
+                      </label>
+
+                      {formData.isPack && (
+                        <div>
+                          <Label htmlFor="packQuantity">Pack Quantity *</Label>
+                          <Input
+                            id="packQuantity"
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={formData.packQuantity}
+                            onChange={(e) => setFormData(prev => ({ ...prev, packQuantity: e.target.value }))}
+                            placeholder={`How many ${formData.unit || 'units'} per pack`}
+                            required={submissionMode === 'single' && formData.isPack}
+                          />
+                          <p className="mt-1 text-xs text-gray-500">1 pack = {formData.packQuantity || '?'} {formData.unit || 'unit'}</p>
+                        </div>
+                      )}
                     </div>
 
                     <div>
-                      <Label htmlFor="specifications">Specifications</Label>
+                      <Label htmlFor="specifications">Specifications *</Label>
                       <Textarea
                         id="specifications"
                         value={formData.specifications}
                         onChange={(e) => setFormData(prev => ({ ...prev, specifications: e.target.value }))}
                         placeholder="Describe the part specifications and requirements"
                         rows={3}
+                        required={submissionMode === 'single'}
                       />
                     </div>
 
                     <div>
-                      <Label htmlFor="image">Part Image (optional)</Label>
+                      <Label htmlFor="image">Part Image *</Label>
                       <div className="space-y-3">
                         <Input
                           id="image"
                           type="file"
                           accept="image/*"
                           onChange={handleFileSelect}
+                          required={submissionMode === 'single'}
                         />
                         {imagePreview && (
                           <div className="border rounded-lg p-3">
@@ -732,8 +938,8 @@ export default function PartApplicationPage() {
                   </div>
                 )}
 
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   disabled={isSubmitting}
                   className="w-full"
                 >
@@ -764,18 +970,10 @@ export default function PartApplicationPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-3 gap-2 mb-4">
+              <div className="grid grid-cols-2 gap-2 mb-4">
                 <button
                   type="button"
-                  onClick={() => setApplicationStatusFilter('all')}
-                  className={`rounded-lg border p-3 text-left transition ${applicationStatusFilter === 'all' ? 'border-blue-500 bg-blue-50' : 'hover:bg-gray-50'}`}
-                >
-                  <p className="text-xs text-gray-500">All</p>
-                  <p className="text-xl font-bold">{applications.length}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setApplicationStatusFilter('pending')}
+                  onClick={() => setApplicationStatusFilter(applicationStatusFilter === 'pending' ? 'all' : 'pending')}
                   className={`rounded-lg border p-3 text-left transition ${applicationStatusFilter === 'pending' ? 'border-blue-500 bg-blue-50' : 'hover:bg-gray-50'}`}
                 >
                   <p className="text-xs text-blue-700">Pending</p>
@@ -783,7 +981,7 @@ export default function PartApplicationPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setApplicationStatusFilter('approved')}
+                  onClick={() => setApplicationStatusFilter(applicationStatusFilter === 'approved' ? 'all' : 'approved')}
                   className={`rounded-lg border p-3 text-left transition ${applicationStatusFilter === 'approved' ? 'border-green-500 bg-green-50' : 'hover:bg-gray-50'}`}
                 >
                   <p className="text-xs text-green-700">Approved</p>
@@ -820,15 +1018,20 @@ export default function PartApplicationPage() {
                           )}
                         </div>
                       </div>
-                      
+
                       <div className="text-xs text-gray-600">
                         <p><strong>Requested by:</strong> {app.requesterName || app.requestedBy}</p>
                         <p><strong>Email:</strong> {app.requesterEmail || 'N/A'}</p>
                         <p><strong>Supplier:</strong> {app.supplier}</p>
                         <p><strong>Supplier SAP Code:</strong> {app.supplierSapCode || 'N/A'}</p>
                         <p><strong>Standard Price:</strong> ${app.standardPrice}</p>
+                        <p><strong>Part Name:</strong> {app.partName || 'N/A'}</p>
+                        <p><strong>Price Effective Date:</strong> {app.priceEffectiveDate || 'N/A'}</p>
+                        <p><strong>Unit:</strong> {app.unit || 'N/A'}</p>
+                        <p><strong>Is Pack:</strong> {app.isPack ? `Yes (${app.packQuantity || '-'} ${app.unit || 'unit'} per pack)` : 'No'}</p>
+                        {app.rejectionReason && <p><strong>Reject Reason:</strong> {app.rejectionReason}</p>}
                       </div>
-                      
+
                       {app.applicationFileUrl && (
                         <div className="flex items-center justify-between text-xs text-gray-500">
                           <span>Application: {app.applicationFileName || 'uploaded file'}</span>
@@ -840,23 +1043,30 @@ export default function PartApplicationPage() {
                       )}
 
                       {app.imageUrl && (
-                        <div className="flex items-center justify-between text-xs text-gray-500">
-                          <div className="flex items-center space-x-1">
-                            <Image className="h-3 w-3" />
-                            <span>Image uploaded</span>
+                        <div className="rounded-lg border bg-gray-50 p-2">
+                          <img
+                            src={app.imageUrl}
+                            alt={`${app.partName || app.id} image`}
+                            className="h-28 w-full rounded-md object-contain bg-white"
+                          />
+                          <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                            <div className="flex items-center space-x-1">
+                              <Image className="h-3 w-3" />
+                              <span>Image preview</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => downloadImage(app.imageUrl!, `${app.partCode || app.id}.png`)}
+                              className="h-6 px-2 text-xs"
+                            >
+                              <Download className="h-3 w-3 mr-1" />
+                              Open
+                            </Button>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => downloadImage(app.imageUrl!, `${app.id}.png`)}
-                            className="h-6 px-2 text-xs"
-                          >
-                            <Download className="h-3 w-3 mr-1" />
-                            Open
-                          </Button>
                         </div>
                       )}
-                      
+
                       {app.status === 'pending' && (
                         <div className="flex gap-2">
                           <Input
@@ -875,7 +1085,7 @@ export default function PartApplicationPage() {
                         <Badge variant="outline" className={getPriorityColor(app.priority)}>
                           {app.priority} priority
                         </Badge>
-                        
+
                         <div className="flex space-x-1">
                           <Dialog>
                             <DialogTrigger asChild>
@@ -897,10 +1107,15 @@ export default function PartApplicationPage() {
                                   <div><strong>Priority:</strong> {app.priority}</div>
                                   <div><strong>Supplier:</strong> {app.supplier}</div>
                                   <div><strong>Standard Price:</strong> ${app.standardPrice}</div>
+                                  <div><strong>Part Name:</strong> {app.partName || 'N/A'}</div>
+                                  <div><strong>Price Effective Date:</strong> {app.priceEffectiveDate || 'N/A'}</div>
+                                  <div><strong>Unit:</strong> {app.unit || 'N/A'}</div>
+                                  <div><strong>Is Pack:</strong> {app.isPack ? `Yes (${app.packQuantity || '-'} ${app.unit || 'unit'} per pack)` : 'No'}</div>
                                   <div><strong>Status:</strong> {app.status}</div>
                                 </div>
                                 <div><strong>Specifications:</strong> {app.specifications}</div>
                                 {app.notes && <div><strong>Notes:</strong> {app.notes}</div>}
+                                {app.rejectionReason && <div><strong>Reject Reason:</strong> {app.rejectionReason}</div>}
                                 {app.applicationFileUrl && (
                         <div className="flex items-center justify-between text-xs text-gray-500">
                           <span>Application: {app.applicationFileName || 'uploaded file'}</span>
@@ -942,20 +1157,33 @@ export default function PartApplicationPage() {
                               </div>
                             </DialogContent>
                           </Dialog>
-                          
+
                           {app.status === 'pending' && (
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => setApproveDialog({ open: true, application: app })}
-                              className="text-green-600 hover:text-green-700"
-                            >
-                              <CheckCircle className="h-3 w-3" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setApproveDialog({ open: true, application: app })}
+                                className="text-green-600 hover:text-green-700"
+                              >
+                                <CheckCircle className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setRejectDialog({ open: true, application: app });
+                                  setRejectionReason('');
+                                }}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <XCircle className="h-3 w-3" />
+                              </Button>
+                            </>
                           )}
-                          
-                          <Button 
-                            variant="outline" 
+
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => downloadPDF(app)}
                             disabled={isSubmitting}
@@ -993,7 +1221,7 @@ export default function PartApplicationPage() {
                 required
               />
             </div>
-            
+
             {approveDialog.application?.imageUrl && (
               <div className="space-y-2">
                 <Label>Original Image</Label>
@@ -1013,9 +1241,9 @@ export default function PartApplicationPage() {
                 </p>
               </div>
             )}
-            
+
             <div>
-              <Label htmlFor="partCodeImage">Upload Image with Part Code Name (Optional)</Label>
+              <Label htmlFor="partCodeImage">Replace Approved Part Image (Optional)</Label>
               <Input
                 id="partCodeImage"
                 type="file"
@@ -1036,10 +1264,10 @@ export default function PartApplicationPage() {
                 This image will be saved as {partCode || 'partCode'}.png
               </p>
             </div>
-            
+
             <div className="flex justify-end space-x-2">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => {
                   setApproveDialog({ open: false, application: null });
                   setPartCode('');
@@ -1049,7 +1277,7 @@ export default function PartApplicationPage() {
               >
                 Cancel
               </Button>
-              <Button 
+              <Button
                 onClick={handleApprove}
                 disabled={isSubmitting || !partCode.trim()}
               >
@@ -1069,6 +1297,63 @@ export default function PartApplicationPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Reject Dialog */}
+      <Dialog open={rejectDialog.open} onOpenChange={(open) => {
+        setRejectDialog({ open, application: open ? rejectDialog.application : null });
+        if (!open) setRejectionReason('');
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Reject Application - {rejectDialog.application?.id}</DialogTitle>
+            <DialogDescription>
+              Enter the rejection reason. The requester will receive this reason by email.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="rejectionReason">Rejection Reason *</Label>
+              <Textarea
+                id="rejectionReason"
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="Explain why this application is rejected"
+                rows={4}
+                required
+              />
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setRejectDialog({ open: false, application: null });
+                  setRejectionReason('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleReject}
+                disabled={isSubmitting || !rejectionReason.trim()}
+              >
+                {isSubmitting ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span className="ml-2">Rejecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject Application
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
