@@ -475,6 +475,11 @@ export class FirebaseService {
         supplier: application.supplier,
         supplierSapCode: application.supplierSapCode,
         standardPrice: application.standardPrice,
+        partName: application.partName || '',
+        priceEffectiveDate: application.priceEffectiveDate || '',
+        unit: application.unit || '',
+        isPack: Boolean(application.isPack),
+        packQuantity: application.isPack ? application.packQuantity || '' : '',
         notes: application.notes,
         submittedAt: application.submittedAt,
         status: application.status,
@@ -488,22 +493,70 @@ export class FirebaseService {
     }
   }
 
-  static async approvePartApplication(applicationId: string, partCode: string): Promise<void> {
+  static async approvePartApplication(applicationId: string, partCode: string, replacementImageUrl = ''): Promise<string> {
     try {
       const appRef = ref(database, `partApplications/${applicationId}`);
       const snapshot = await get(appRef);
-      if (snapshot.exists()) {
-        const currentData = snapshot.val();
-        const updates = {
-          ...currentData,
-          status: 'approved',
-          partCode: partCode,
-          approvedAt: new Date().toISOString()
-        };
-        await set(appRef, updates);
+      if (!snapshot.exists()) {
+        throw new Error('Application not found');
       }
+
+      const currentData = snapshot.val();
+      const partImageUrl = replacementImageUrl || await this.copyImageToPartCode(applicationId, partCode);
+      const approvedAt = new Date().toISOString();
+      const updates = {
+        ...currentData,
+        status: 'approved',
+        partCode,
+        imageUrl: partImageUrl || currentData.imageUrl || '',
+        partCodeImageUrl: partImageUrl || currentData.partCodeImageUrl || '',
+        approvedAt
+      };
+      await set(appRef, updates);
+
+      await set(ref(database, `material_summary_2025/${partCode}`), {
+        Material: partCode,
+        SPRAS_EN: currentData.partName || currentData.specifications || partCode,
+        SPRAS_ZH: currentData.partName || currentData.specifications || partCode,
+        Standard_Price: Number(currentData.standardPrice) || 0,
+        Supplier_Name: currentData.supplier || '',
+        Supplier_SAP_Code: currentData.supplierSapCode || '',
+        Price_Effective_Date: currentData.priceEffectiveDate || '',
+        Unit: currentData.unit || '',
+        Is_Pack: Boolean(currentData.isPack),
+        Pack_Quantity: currentData.isPack ? currentData.packQuantity || '' : '',
+        Part_Image_Url: partImageUrl || currentData.imageUrl || '',
+        Current_Stock_Qty: 0,
+        notes: currentData.notes || '',
+        show_in_catalogue: true,
+        applicationId,
+        approvedAt
+      });
+
+      await set(ref(database, `PartsVisibility/${partCode}`), { show_in_catalogue: true });
+
+      return partImageUrl || currentData.imageUrl || '';
     } catch (error) {
       console.error('Error approving application:', error);
+      throw error;
+    }
+  }
+
+  static async rejectPartApplication(applicationId: string, reason: string): Promise<void> {
+    try {
+      const appRef = ref(database, `partApplications/${applicationId}`);
+      const snapshot = await get(appRef);
+      if (!snapshot.exists()) {
+        throw new Error('Application not found');
+      }
+      await set(appRef, {
+        ...snapshot.val(),
+        status: 'rejected',
+        rejectionReason: reason,
+        rejectedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error rejecting application:', error);
       throw error;
     }
   }
