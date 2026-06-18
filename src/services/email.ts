@@ -1,5 +1,5 @@
 export interface ApplicationEmailPayload {
-  emailType: 'submitted' | 'part_code_completed' | 'rejected';
+  emailType: 'submitted' | 'part_code_completed';
   toEmail: string;
   requesterName: string;
   requesterEmail: string;
@@ -7,14 +7,11 @@ export interface ApplicationEmailPayload {
   supplier: string;
   supplierSapCode: string;
   standardPrice: string;
-  partName?: string;
-  priceEffectiveDate?: string;
   specifications?: string;
   notes?: string;
   partCode?: string;
   applicationFileUrl?: string;
   imageUrl?: string;
-  rejectionReason?: string;
   submittedAt?: string;
   subjectPrefix?: string;
   serviceId?: string;
@@ -52,14 +49,11 @@ export class EmailService {
           supplier: payload.supplier,
           supplier_sap_code: payload.supplierSapCode,
           standard_price: payload.standardPrice,
-          part_name: payload.partName || 'N/A',
-          price_effective_date: payload.priceEffectiveDate || 'N/A',
           specifications: payload.specifications || 'N/A',
           notes: payload.notes || 'N/A',
           part_code: payload.partCode || 'Pending',
           application_file_url: payload.applicationFileUrl || 'N/A',
           image_url: payload.imageUrl || 'N/A',
-          rejection_reason: payload.rejectionReason || 'N/A',
           submitted_at: payload.submittedAt || new Date().toISOString(),
           subject_prefix: payload.subjectPrefix || 'Part Application',
         },
