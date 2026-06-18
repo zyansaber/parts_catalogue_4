@@ -55,6 +55,9 @@ export interface BoMComponent {
 export interface PartApplication {
   ticket_id: string;
   supplier_name: string;
+  supplier_sap_code?: string;
+  part_name?: string;
+  price_effective_date?: string;
   part_description: string;
   part_number: string;
   requested_by: string;
@@ -65,6 +68,9 @@ export interface PartApplication {
   estimated_cost: number;
   justification: string;
   image_url?: string;
+  part_code?: string;
+  rejection_reason?: string;
+  requester_email?: string;
   status: 'pending' | 'approved' | 'rejected';
   created_at: number;
 }
