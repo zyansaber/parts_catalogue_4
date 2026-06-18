@@ -1,5 +1,5 @@
 export interface ApplicationEmailPayload {
-  emailType: 'submitted' | 'part_code_completed' | 'rejected';
+  emailType: 'submitted' | 'part_code_completed';
   toEmail: string;
   requesterName: string;
   requesterEmail: string;
@@ -7,17 +7,11 @@ export interface ApplicationEmailPayload {
   supplier: string;
   supplierSapCode: string;
   standardPrice: string;
-  partName?: string;
-  priceEffectiveDate?: string;
-  unit?: string;
-  isPack?: boolean;
-  packQuantity?: string;
   specifications?: string;
   notes?: string;
   partCode?: string;
   applicationFileUrl?: string;
   imageUrl?: string;
-  rejectionReason?: string;
   submittedAt?: string;
   subjectPrefix?: string;
   serviceId?: string;
@@ -27,38 +21,6 @@ export interface ApplicationEmailPayload {
 
 const EMAILJS_ENDPOINT = 'https://api.emailjs.com/api/v1.0/email/send';
 const EMAILJS_TEMPLATE_ID = 'template_rij27hq';
-
-const buildEmailTitle = (payload: ApplicationEmailPayload) => {
-  if (payload.emailType === 'rejected') return `Part Application ${payload.applicationId} Rejected`;
-  if (payload.emailType === 'part_code_completed') return `Part Application ${payload.applicationId} Completed`;
-  return `New Part Application ${payload.applicationId}`;
-};
-
-const buildEmailBody = (payload: ApplicationEmailPayload) => {
-  const lines = [
-    `Application ID: ${payload.applicationId}`,
-    `Status: ${payload.emailType}`,
-    `Requester: ${payload.requesterName}`,
-    `Requester Email: ${payload.requesterEmail || 'N/A'}`,
-    `Supplier: ${payload.supplier || 'N/A'}`,
-    `Supplier SAP Code: ${payload.supplierSapCode || 'N/A'}`,
-    `Part Name: ${payload.partName || 'N/A'}`,
-    `Part Code: ${payload.partCode || 'Pending'}`,
-    `Standard Price: ${payload.standardPrice || 'N/A'}`,
-    `Price Effective Date: ${payload.priceEffectiveDate || 'N/A'}`,
-    `Unit: ${payload.unit || 'N/A'}`,
-    `Is Pack: ${payload.isPack ? 'Yes' : 'No'}`,
-    `Pack Quantity: ${payload.isPack ? payload.packQuantity || 'N/A' : 'N/A'}`,
-    `Specifications: ${payload.specifications || 'N/A'}`,
-    `Notes: ${payload.notes || 'N/A'}`,
-    `Rejection Reason: ${payload.rejectionReason || 'N/A'}`,
-    `Application File: ${payload.applicationFileUrl || 'N/A'}`,
-    `Image URL: ${payload.imageUrl || 'N/A'}`,
-    `Submitted At: ${payload.submittedAt || new Date().toISOString()}`,
-  ];
-
-  return lines.join('\n');
-};
 
 export class EmailService {
   static async sendApplicationEmail(payload: ApplicationEmailPayload): Promise<void> {
@@ -79,8 +41,6 @@ export class EmailService {
         user_id: publicKey,
         ...(privateKey ? { accessToken: privateKey } : {}),
         template_params: {
-          email_title: buildEmailTitle(payload),
-          email_body: buildEmailBody(payload),
           email_type: payload.emailType,
           to_email: payload.toEmail,
           requester_name: payload.requesterName,
@@ -89,21 +49,13 @@ export class EmailService {
           supplier: payload.supplier,
           supplier_sap_code: payload.supplierSapCode,
           standard_price: payload.standardPrice,
-          part_name: payload.partName || 'N/A',
-          price_effective_date: payload.priceEffectiveDate || 'N/A',
-          unit: payload.unit || 'N/A',
-          is_pack: payload.isPack ? 'Yes' : 'No',
-          pack_quantity: payload.isPack ? payload.packQuantity || 'N/A' : 'N/A',
           specifications: payload.specifications || 'N/A',
           notes: payload.notes || 'N/A',
           part_code: payload.partCode || 'Pending',
           application_file_url: payload.applicationFileUrl || 'N/A',
           image_url: payload.imageUrl || 'N/A',
-          rejection_reason: payload.rejectionReason || 'N/A',
           submitted_at: payload.submittedAt || new Date().toISOString(),
           subject_prefix: payload.subjectPrefix || 'Part Application',
-          subject: `${payload.subjectPrefix || 'Part Application'} - ${buildEmailTitle(payload)}`,
-          message: buildEmailBody(payload),
         },
       }),
     });
