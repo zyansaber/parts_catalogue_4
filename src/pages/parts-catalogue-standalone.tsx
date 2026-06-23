@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Search, Eye, Package, ChevronLeft, ChevronRight,
-  ChevronsLeft, ChevronsRight, SlidersHorizontal, Tag,
+  ChevronsLeft, ChevronsRight, SlidersHorizontal,
   ArrowUpDown, CheckSquare, AlertTriangle, CalendarClock,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -24,7 +24,6 @@ export default function PartsCatalogueStandalonePage() {
   const [displayedParts, setDisplayedParts] = useState<Record<string, Part>>({});
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedSupplier, setSelectedSupplier] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('material');
   const [showInStockOnly, setShowInStockOnly] = useState(false);
   const [selectedPart, setSelectedPart] = useState<{ material: string; part: Part } | null>(null);
@@ -68,33 +67,28 @@ export default function PartsCatalogueStandalonePage() {
     setCurrentPage(1);
   }, [debouncedSearchTerm]);
 
-  const suppliers = useMemo(() => {
-    const supplierSet = new Set<string>();
-    Object.values(allParts).forEach(part => {
-      if (part.Supplier_Name) supplierSet.add(part.Supplier_Name);
-    });
-    return Array.from(supplierSet).sort();
-  }, [allParts]);
-
   const filteredAndSortedParts = useMemo(() => {
-    const filtered = Object.entries(allParts).filter(([, part]) => {
+    const filtered = Object.entries(allParts).filter(([material, part]) => {
       if (part.show_in_catalogue === false) return false;
-      const matchesSupplier = selectedSupplier === 'all' || part.Supplier_Name === selectedSupplier;
+      const searchLower = debouncedSearchTerm.toLowerCase();
+      const matchesSearch = !searchLower ||
+        material.toLowerCase().includes(searchLower) ||
+        (part.SPRAS_EN || '').toLowerCase().includes(searchLower) ||
+        (part.SPRAS_ZH || '').toLowerCase().includes(searchLower);
       const matchesStock = !showInStockOnly || (part.Current_Stock_Qty || 0) > 0;
-      return matchesSupplier && matchesStock;
+      return matchesSearch && matchesStock;
     });
 
     filtered.sort(([materialA, partA], [materialB, partB]) => {
       switch (sortBy) {
         case 'price':   return (partA.Standard_Price || 0) - (partB.Standard_Price || 0);
         case 'stock':   return (partB.Current_Stock_Qty || 0) - (partA.Current_Stock_Qty || 0);
-        case 'supplier': return (partA.Supplier_Name || '').localeCompare(partB.Supplier_Name || '');
         default:        return materialA.localeCompare(materialB);
       }
     });
 
     return filtered;
-  }, [allParts, selectedSupplier, sortBy, showInStockOnly]);
+  }, [allParts, debouncedSearchTerm, sortBy, showInStockOnly]);
 
 
 
@@ -185,10 +179,10 @@ export default function PartsCatalogueStandalonePage() {
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           {/* Search */}
-          <div className="md:col-span-5 relative">
+          <div className="md:col-span-8 relative">
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <Input
-              placeholder="Part code, description or supplier…"
+              placeholder="Part code or description…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9 pr-9 h-9 bg-white border-slate-300 text-sm placeholder:text-slate-400 focus-visible:ring-slate-900"
@@ -200,24 +194,8 @@ export default function PartsCatalogueStandalonePage() {
             )}
           </div>
 
-          {/* Supplier */}
-          <div className="md:col-span-4">
-            <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-              <SelectTrigger className="h-9 bg-white border-slate-300 text-sm focus:ring-slate-900">
-                <Tag className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-                <SelectValue placeholder="All suppliers" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Suppliers</SelectItem>
-                {suppliers.map(s => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           {/* Sort */}
-          <div className="md:col-span-3">
+          <div className="md:col-span-4">
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className="h-9 bg-white border-slate-300 text-sm focus:ring-slate-900">
                 <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
@@ -226,7 +204,6 @@ export default function PartsCatalogueStandalonePage() {
               <SelectContent>
                 <SelectItem value="material">Part Code</SelectItem>
                 <SelectItem value="stock">Stock (High → Low)</SelectItem>
-                <SelectItem value="supplier">Supplier</SelectItem>
                 <SelectItem value="price">Price (Low → High)</SelectItem>
               </SelectContent>
             </Select>
@@ -345,12 +322,6 @@ export default function PartsCatalogueStandalonePage() {
                               </p>
                             </div>
 
-                            {/* Supplier */}
-                            <div>
-                              <p className="text-[11px] uppercase tracking-widest font-semibold text-slate-400 mb-1">Supplier</p>
-                              <p className="text-slate-700">{selectedPart.part.Supplier_Name || '—'}</p>
-                            </div>
-
                             {/* Pricing */}
                             <div className="grid grid-cols-2 gap-3">
                               <div className="rounded-lg bg-blue-50 border border-blue-100 px-4 py-3">
@@ -415,11 +386,6 @@ export default function PartsCatalogueStandalonePage() {
                   {/* Description */}
                   <p className="text-[11px] text-slate-600 line-clamp-2 leading-snug min-h-[2rem]">
                     {resolvePartDescription(lang, part) || 'No description'}
-                  </p>
-
-                  {/* Supplier */}
-                  <p className="text-[10px] text-slate-400 truncate font-medium">
-                    {part.Supplier_Name || 'Unknown supplier'}
                   </p>
 
                   {/* Admin flags */}
