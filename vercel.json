@@ -11,6 +11,13 @@
   ],
   "routes": [
     {
+      "src": "/(index\\.html|parts-catalogue-standalone)",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+      },
+      "continue": true
+    },
+    {
       "handle": "filesystem"
     },
     {
