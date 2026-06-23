@@ -9,3 +9,13 @@
 
 [build.environment]
   NODE_VERSION = "18"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/parts-catalogue-standalone"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"

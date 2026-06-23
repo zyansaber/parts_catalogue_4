@@ -27,6 +27,13 @@ services:
         sync: false
       - key: VITE_EMAILJS_PRIVATE_KEY
         sync: false
+    headers:
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /parts-catalogue-standalone
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
     routes:
       - type: rewrite
         source: /*
