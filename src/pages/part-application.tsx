@@ -25,6 +25,7 @@ interface PartApplication {
   standardPrice: string;
   partName: string;
   priceEffectiveDate: string;
+  leadingTime: string;
   unit: string;
   isPack: boolean;
   packQuantity: string;
@@ -95,6 +96,7 @@ export default function PartApplicationPage() {
     standardPrice: '',
     partName: '',
     priceEffectiveDate: '',
+    leadingTime: '',
     unit: '',
     isPack: false,
     packQuantity: '',
@@ -148,6 +150,7 @@ export default function PartApplicationPage() {
       standardPrice: '',
       partName: '',
       priceEffectiveDate: '',
+      leadingTime: '',
       unit: '',
       isPack: false,
       packQuantity: '',
@@ -263,13 +266,14 @@ export default function PartApplicationPage() {
       const standardPrice = row.standard_price || row.price || '';
       const partName = row.part_name || row.name || '';
       const priceEffectiveDate = row.price_effective_date || row.effective_date || '';
+      const leadingTime = row.leading_time || row.lead_time || row.leadingtime || '';
       const unit = row.unit || '';
       const isPackValue = (row.is_pack || row.pack || '').toLowerCase();
       const isPack = ['yes', 'true', '1', 'y'].includes(isPackValue);
       const packQuantity = row.pack_quantity || row.pack_qty || '';
       const specifications = row.specifications || '';
-      if (!supplier || !supplierSapCode || !standardPrice || !partName || !priceEffectiveDate || !unit || !isPackValue || !specifications || (isPack && !packQuantity)) {
-        throw new Error(`Row ${index + 2} is missing required fields. Bulk rows need Preferred Supplier, Preferred Supplier SAP Code, Standard Price, Part Name, Price Effective Date, Unit, Is Pack, Specifications, and Pack Quantity when Is Pack is yes.`);
+      if (!supplier || !supplierSapCode || !standardPrice || !partName || !priceEffectiveDate || !leadingTime || !unit || !isPackValue || !specifications || (isPack && !packQuantity)) {
+        throw new Error(`Row ${index + 2} is missing required fields. Bulk rows need Preferred Supplier, Preferred Supplier SAP Code, Standard Price, Part Name, Price Effective Date, Leading Time, Unit, Is Pack, Specifications, and Pack Quantity when Is Pack is yes.`);
       }
 
       return {
@@ -278,6 +282,7 @@ export default function PartApplicationPage() {
         standardPrice,
         partName,
         priceEffectiveDate,
+        leadingTime,
         unit,
         isPack,
         packQuantity,
@@ -303,6 +308,7 @@ export default function PartApplicationPage() {
       standardPrice: application.standardPrice,
       partName: application.partName,
       priceEffectiveDate: application.priceEffectiveDate,
+      leadingTime: application.leadingTime,
       unit: application.unit,
       isPack: application.isPack,
       packQuantity: application.packQuantity,
@@ -335,7 +341,7 @@ export default function PartApplicationPage() {
       return;
     }
 
-    if (submissionMode === 'single' && (!formData.supplier || !formData.supplierSapCode || !formData.standardPrice || !formData.partName || !formData.priceEffectiveDate || !formData.unit || !formData.specifications || (formData.isPack && !formData.packQuantity) || !selectedFile)) {
+    if (submissionMode === 'single' && (!formData.supplier || !formData.supplierSapCode || !formData.standardPrice || !formData.partName || !formData.priceEffectiveDate || !formData.leadingTime || !formData.unit || !formData.specifications || (formData.isPack && !formData.packQuantity) || !selectedFile)) {
       showMessage('error', 'Please fill in all required fields and upload a part image');
       return;
     }
@@ -387,6 +393,7 @@ export default function PartApplicationPage() {
             standardPrice: 'Multiple',
             partName: 'Multiple',
             priceEffectiveDate: 'Multiple',
+            leadingTime: 'Multiple',
             unit: 'Multiple',
             isPack: false,
             packQuantity: '',
@@ -466,6 +473,7 @@ export default function PartApplicationPage() {
             imageUrl: partImageUrl || application.imageUrl,
             partName: application.partName,
             priceEffectiveDate: application.priceEffectiveDate,
+            leadingTime: application.leadingTime,
             unit: application.unit,
             isPack: application.isPack,
             packQuantity: application.packQuantity,
@@ -494,8 +502,8 @@ export default function PartApplicationPage() {
 
   const downloadTemplate = () => {
     const content = [
-      'Preferred Supplier,Preferred Supplier SAP Code,Standard Price,Part Name,Price Effective Date,Unit,Is Pack,Pack Quantity,Specifications,Notes',
-      'Example Supplier,SAP12345,100.00,Example part name,2026-06-18,PCS,yes,10,Required specification,Optional note'
+      'Preferred Supplier,Preferred Supplier SAP Code,Standard Price,Part Name,Price Effective Date,Leading Time,Unit,Is Pack,Pack Quantity,Specifications,Notes',
+      'Example Supplier,SAP12345,100.00,Example part name,2026-06-18,14 days,PCS,yes,10,Required specification,Optional note'
     ].join('\n');
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -570,6 +578,7 @@ export default function PartApplicationPage() {
             standardPrice: rejectDialog.application.standardPrice,
             partName: rejectDialog.application.partName,
             priceEffectiveDate: rejectDialog.application.priceEffectiveDate,
+            leadingTime: rejectDialog.application.leadingTime,
             unit: rejectDialog.application.unit,
             isPack: rejectDialog.application.isPack,
             packQuantity: rejectDialog.application.packQuantity,
@@ -613,6 +622,7 @@ export default function PartApplicationPage() {
         part_number: application.partCode || '',
         part_name: application.partName,
         price_effective_date: application.priceEffectiveDate,
+        leading_time: application.leadingTime,
         unit: application.unit,
         is_pack: application.isPack,
         pack_quantity: application.packQuantity,
@@ -788,7 +798,7 @@ export default function PartApplicationPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div>
                         <Label htmlFor="standardPrice">Standard Price *</Label>
                         <Input
@@ -820,6 +830,17 @@ export default function PartApplicationPage() {
                           type="date"
                           value={formData.priceEffectiveDate}
                           onChange={(e) => setFormData(prev => ({ ...prev, priceEffectiveDate: e.target.value }))}
+                          required={submissionMode === 'single'}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="leadingTime">Leading Time *</Label>
+                        <Input
+                          id="leadingTime"
+                          value={formData.leadingTime}
+                          onChange={(e) => setFormData(prev => ({ ...prev, leadingTime: e.target.value }))}
+                          placeholder="e.g. 14 days"
                           required={submissionMode === 'single'}
                         />
                       </div>
@@ -1027,6 +1048,7 @@ export default function PartApplicationPage() {
                         <p><strong>Standard Price:</strong> ${app.standardPrice}</p>
                         <p><strong>Part Name:</strong> {app.partName || 'N/A'}</p>
                         <p><strong>Price Effective Date:</strong> {app.priceEffectiveDate || 'N/A'}</p>
+                        <p><strong>Leading Time:</strong> {app.leadingTime || 'N/A'}</p>
                         <p><strong>Unit:</strong> {app.unit || 'N/A'}</p>
                         <p><strong>Is Pack:</strong> {app.isPack ? `Yes (${app.packQuantity || '-'} ${app.unit || 'unit'} per pack)` : 'No'}</p>
                         {app.rejectionReason && <p><strong>Reject Reason:</strong> {app.rejectionReason}</p>}
@@ -1109,6 +1131,7 @@ export default function PartApplicationPage() {
                                   <div><strong>Standard Price:</strong> ${app.standardPrice}</div>
                                   <div><strong>Part Name:</strong> {app.partName || 'N/A'}</div>
                                   <div><strong>Price Effective Date:</strong> {app.priceEffectiveDate || 'N/A'}</div>
+                                  <div><strong>Leading Time:</strong> {app.leadingTime || 'N/A'}</div>
                                   <div><strong>Unit:</strong> {app.unit || 'N/A'}</div>
                                   <div><strong>Is Pack:</strong> {app.isPack ? `Yes (${app.packQuantity || '-'} ${app.unit || 'unit'} per pack)` : 'No'}</div>
                                   <div><strong>Status:</strong> {app.status}</div>

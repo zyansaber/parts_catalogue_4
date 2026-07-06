@@ -9,6 +9,7 @@ export interface ApplicationEmailPayload {
   standardPrice: string;
   partName?: string;
   priceEffectiveDate?: string;
+  leadingTime?: string;
   unit?: string;
   isPack?: boolean;
   packQuantity?: string;
@@ -85,6 +86,7 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
               ${detailRow('Part Code / 零件编码', payload.partCode || 'Pending')}
               ${detailRow('Standard Price / 标准价格', payload.standardPrice)}
               ${detailRow('Price Effective Date / 价格生效日期', payload.priceEffectiveDate)}
+              ${detailRow('Leading Time / 交期', payload.leadingTime)}
               ${detailRow('Unit / 单位', payload.unit)}
               ${detailRow('Is Pack / 是否Pack', packText)}
               ${detailRow('Submitted At / 提交时间', payload.submittedAt || new Date().toISOString())}
@@ -138,6 +140,7 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
     `Part Code: ${payload.partCode || 'Pending'}`,
     `Standard Price: ${payload.standardPrice || 'N/A'}`,
     `Price Effective Date: ${payload.priceEffectiveDate || 'N/A'}`,
+    `Leading Time: ${payload.leadingTime || 'N/A'}`,
     `Unit: ${payload.unit || 'N/A'}`,
     `Is Pack: ${payload.isPack ? 'Yes' : 'No'}`,
     `Pack Quantity: ${payload.isPack ? payload.packQuantity || 'N/A' : 'N/A'}`,
@@ -184,6 +187,7 @@ export class EmailService {
           standard_price: payload.standardPrice,
           part_name: payload.partName || 'N/A',
           price_effective_date: payload.priceEffectiveDate || 'N/A',
+          leading_time: payload.leadingTime || 'N/A',
           unit: payload.unit || 'N/A',
           is_pack: payload.isPack ? 'Yes' : 'No',
           pack_quantity: payload.isPack ? payload.packQuantity || 'N/A' : 'N/A',

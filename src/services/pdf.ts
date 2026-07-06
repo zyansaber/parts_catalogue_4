@@ -96,6 +96,7 @@ export class PDFService {
         ['Supplier SAP Code / 供应商SAP编码', application.supplier_sap_code],
         ['Standard Price / 标准价格', formatCurrency(application.estimated_cost || 0)],
         ['Price Effective Date / 价格生效日期', application.price_effective_date],
+        ['Leading Time / 交期', application.leading_time],
         ['Unit / 单位', application.unit],
         ['Is Pack / 是否为Pack', application.is_pack ? 'Yes / 是' : 'No / 否'],
         ...(application.is_pack ? [['Pack Quantity / Pack数量', `1 pack = ${application.pack_quantity || 'N/A'} ${application.unit || 'unit'}`] as [string, unknown]] : []),
