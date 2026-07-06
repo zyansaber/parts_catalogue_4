@@ -58,6 +58,7 @@ export interface PartApplication {
   supplier_sap_code?: string;
   part_name?: string;
   price_effective_date?: string;
+  leading_time?: string;
   unit?: string;
   is_pack?: boolean;
   pack_quantity?: string;
