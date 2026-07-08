@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Download, Plus, Eye, CheckCircle, Image, XCircle } from 'lucide-react';
+import { FileText, Download, Plus, Eye, CheckCircle, Image, XCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,6 +23,9 @@ interface PartApplication {
   specifications: string;
   supplier: string;
   standardPrice: string;
+  isPrototypePricePending?: boolean;
+  estimatedPrice?: string;
+  prototypePriceReminderSentAt?: string;
   partName: string;
   priceEffectiveDate: string;
   leadingTime: string;
@@ -38,6 +41,9 @@ interface PartApplication {
   requesterName?: string;
   requesterEmail?: string;
   supplierSapCode?: string;
+  supplierPartCode?: string;
+  wholesalePrice?: string;
+  retailPrice?: string;
   applicationFileUrl?: string;
   applicationFileName?: string;
   rejectionReason?: string;
@@ -52,6 +58,7 @@ interface ApplicationRequester {
 
 interface ApplicationEmailSettings {
   notifyEmail: string;
+  pricePendingNotifyEmail?: string;
   subjectPrefix?: string;
   serviceId?: string;
   publicKey?: string;
@@ -82,7 +89,8 @@ export default function PartApplicationPage() {
   const [applicationFile, setApplicationFile] = useState<File | null>(null);
   const [partCodeDrafts, setPartCodeDrafts] = useState<Record<string, string>>({});
   const [submissionMode, setSubmissionMode] = useState<'single' | 'bulk'>('single');
-  const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'pending' | 'approved'>('pending');
+  const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'pending' | 'approved' | 'prototype_price_pending'>('pending');
+  const [prototypePassword, setPrototypePassword] = useState('');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -93,7 +101,12 @@ export default function PartApplicationPage() {
     specifications: '',
     supplier: '',
     supplierSapCode: '',
+    supplierPartCode: '',
+    wholesalePrice: '',
+    retailPrice: '',
     standardPrice: '',
+    isPrototypePricePending: false,
+    estimatedPrice: '',
     partName: '',
     priceEffectiveDate: '',
     leadingTime: '',
@@ -109,6 +122,10 @@ export default function PartApplicationPage() {
     loadApplications();
     loadApplicationConfig();
   }, []);
+
+  useEffect(() => {
+    checkPrototypePricePendingReminders();
+  }, [applications, emailSettings.pricePendingNotifyEmail]);
 
   const loadApplicationConfig = async () => {
     const [loadedRequesters, loadedEmailSettings] = await Promise.all([
@@ -147,7 +164,12 @@ export default function PartApplicationPage() {
       specifications: '',
       supplier: '',
       supplierSapCode: '',
+      supplierPartCode: '',
+      wholesalePrice: '',
+      retailPrice: '',
       standardPrice: '',
+      isPrototypePricePending: false,
+      estimatedPrice: '',
       partName: '',
       priceEffectiveDate: '',
       leadingTime: '',
@@ -161,6 +183,7 @@ export default function PartApplicationPage() {
     setImagePreview(null);
     setApplicationFile(null);
     setSubmissionMode('single');
+    setPrototypePassword('');
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -263,7 +286,13 @@ export default function PartApplicationPage() {
 
       const supplier = row.preferred_supplier || row.supplier || '';
       const supplierSapCode = row.preferred_supplier_sap_code || row.supplier_sap_code || '';
+      const supplierPartCode = row.supplier_part_code || row.supplier_part_number || '';
+      const wholesalePrice = row.wholesale_price || '';
+      const retailPrice = row.retail_price || '';
+      const isPrototypePricePendingValue = (row.prototype_price_pending || row.price_pending || '').toLowerCase();
+      const isPrototypePricePending = ['yes', 'true', '1', 'y'].includes(isPrototypePricePendingValue);
       const standardPrice = row.standard_price || row.price || '';
+      const estimatedPrice = row.estimated_price || '';
       const partName = row.part_name || row.name || '';
       const priceEffectiveDate = row.price_effective_date || row.effective_date || '';
       const leadingTime = row.leading_time || row.lead_time || row.leadingtime || '';
@@ -272,14 +301,19 @@ export default function PartApplicationPage() {
       const isPack = ['yes', 'true', '1', 'y'].includes(isPackValue);
       const packQuantity = row.pack_quantity || row.pack_qty || '';
       const specifications = row.specifications || '';
-      if (!supplier || !supplierSapCode || !standardPrice || !partName || !priceEffectiveDate || !leadingTime || !unit || !isPackValue || !specifications || (isPack && !packQuantity)) {
-        throw new Error(`Row ${index + 2} is missing required fields. Bulk rows need Preferred Supplier, Preferred Supplier SAP Code, Standard Price, Part Name, Price Effective Date, Leading Time, Unit, Is Pack, Specifications, and Pack Quantity when Is Pack is yes.`);
+      if (!supplier || !supplierSapCode || (!standardPrice && !isPrototypePricePending) || !partName || !priceEffectiveDate || !leadingTime || !unit || !isPackValue || !specifications || (isPack && !packQuantity)) {
+        throw new Error(`Row ${index + 2} is missing required fields. Bulk rows need Preferred Supplier, Preferred Supplier SAP Code, Standard Price (unless Prototype Price Pending is yes), Part Name, Price Effective Date, Leading Time, Unit, Is Pack, Specifications, and Pack Quantity when Is Pack is yes.`);
       }
 
       return {
         supplier,
         supplierSapCode,
+        supplierPartCode,
+        wholesalePrice,
+        retailPrice,
         standardPrice,
+        isPrototypePricePending,
+        estimatedPrice,
         partName,
         priceEffectiveDate,
         leadingTime,
@@ -294,6 +328,62 @@ export default function PartApplicationPage() {
     return rows;
   };
 
+
+  const checkPrototypePricePendingReminders = async () => {
+    if (!emailSettings.pricePendingNotifyEmail || applications.length === 0) return;
+
+    const now = Date.now();
+    const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+    const overdueApplications = applications.filter((application) => {
+      const submittedTime = new Date(application.submittedAt).getTime();
+      return application.isPrototypePricePending
+        && !application.standardPrice
+        && !application.prototypePriceReminderSentAt
+        && Number.isFinite(submittedTime)
+        && now - submittedTime >= fourteenDaysMs;
+    });
+
+    for (const application of overdueApplications) {
+      try {
+        const reminderSentAt = new Date().toISOString();
+        await EmailService.sendApplicationEmail({
+          emailType: 'price_pending_reminder',
+          toEmail: emailSettings.pricePendingNotifyEmail,
+          requesterName: application.requesterName || application.requestedBy,
+          requesterEmail: application.requesterEmail || '',
+          applicationId: application.id,
+          supplier: application.supplier,
+          supplierSapCode: application.supplierSapCode || '',
+          supplierPartCode: application.supplierPartCode || '',
+          wholesalePrice: application.wholesalePrice || '',
+          retailPrice: application.retailPrice || '',
+          standardPrice: application.standardPrice,
+          isPrototypePricePending: application.isPrototypePricePending,
+          estimatedPrice: application.estimatedPrice,
+          partName: application.partName,
+          priceEffectiveDate: application.priceEffectiveDate,
+          leadingTime: application.leadingTime,
+          unit: application.unit,
+          isPack: application.isPack,
+          packQuantity: application.packQuantity,
+          specifications: application.specifications,
+          notes: `${application.notes || ''}\n\nPrototype price pending has not been maintained 14 days after submission.`.trim(),
+          applicationFileUrl: application.applicationFileUrl,
+          imageUrl: application.imageUrl,
+          submittedAt: application.submittedAt,
+          subjectPrefix: emailSettings.subjectPrefix,
+          serviceId: emailSettings.serviceId,
+          publicKey: emailSettings.publicKey,
+          privateKey: emailSettings.privateKey,
+        });
+        await FirebaseService.savePartApplication({ ...application, prototypePriceReminderSentAt: reminderSentAt });
+        setApplications((prev) => prev.map((item) => item.id === application.id ? { ...item, prototypePriceReminderSentAt: reminderSentAt } : item));
+      } catch (error) {
+        console.error('Prototype price pending reminder failed:', error);
+      }
+    }
+  };
+
   const sendSubmissionEmail = async (application: PartApplication, applicationFileUrl = '') => {
     if (!emailSettings.notifyEmail) return;
 
@@ -305,7 +395,12 @@ export default function PartApplicationPage() {
       applicationId: application.id,
       supplier: application.supplier,
       supplierSapCode: application.supplierSapCode || '',
+      supplierPartCode: application.supplierPartCode || '',
+      wholesalePrice: application.wholesalePrice || '',
+      retailPrice: application.retailPrice || '',
       standardPrice: application.standardPrice,
+      isPrototypePricePending: application.isPrototypePricePending,
+      estimatedPrice: application.estimatedPrice,
       partName: application.partName,
       priceEffectiveDate: application.priceEffectiveDate,
       leadingTime: application.leadingTime,
@@ -341,7 +436,7 @@ export default function PartApplicationPage() {
       return;
     }
 
-    if (submissionMode === 'single' && (!formData.supplier || !formData.supplierSapCode || !formData.standardPrice || !formData.partName || !formData.priceEffectiveDate || !formData.leadingTime || !formData.unit || !formData.specifications || (formData.isPack && !formData.packQuantity) || !selectedFile)) {
+    if (submissionMode === 'single' && (!formData.supplier || !formData.supplierSapCode || (!formData.standardPrice && !formData.isPrototypePricePending) || !formData.partName || !formData.priceEffectiveDate || !formData.leadingTime || !formData.unit || !formData.specifications || (formData.isPack && !formData.packQuantity) || !selectedFile)) {
       showMessage('error', 'Please fill in all required fields and upload a part image');
       return;
     }
@@ -390,7 +485,12 @@ export default function PartApplicationPage() {
             id: `${createdApplications[0].id} - ${createdApplications[createdApplications.length - 1].id}`,
             supplier: `Bulk upload (${createdApplications.length} applications)`,
             supplierSapCode: 'Multiple',
+            supplierPartCode: 'Multiple',
+            wholesalePrice: 'Multiple',
+            retailPrice: 'Multiple',
             standardPrice: 'Multiple',
+            isPrototypePricePending: createdApplications.some((app) => app.isPrototypePricePending),
+            estimatedPrice: 'Multiple',
             partName: 'Multiple',
             priceEffectiveDate: 'Multiple',
             leadingTime: 'Multiple',
@@ -466,6 +566,9 @@ export default function PartApplicationPage() {
             applicationId: application.id,
             supplier: application.supplier,
             supplierSapCode: application.supplierSapCode || '',
+            supplierPartCode: application.supplierPartCode || '',
+            wholesalePrice: application.wholesalePrice || '',
+            retailPrice: application.retailPrice || '',
             standardPrice: application.standardPrice,
             specifications: application.specifications,
             notes: application.notes,
@@ -502,8 +605,8 @@ export default function PartApplicationPage() {
 
   const downloadTemplate = () => {
     const content = [
-      'Preferred Supplier,Preferred Supplier SAP Code,Standard Price,Part Name,Price Effective Date,Leading Time,Unit,Is Pack,Pack Quantity,Specifications,Notes',
-      'Example Supplier,SAP12345,100.00,Example part name,2026-06-18,14 days,PCS,yes,10,Required specification,Optional note'
+      'Preferred Supplier,Preferred Supplier SAP Code,Supplier Part Code,Wholesale Price,Retail Price,Standard Price,Prototype Price Pending,Estimated Price,Part Name,Price Effective Date,Leading Time,Unit,Is Pack,Pack Quantity,Specifications,Notes',
+      'Example Supplier,SAP12345,SUP-001,85.00,120.00,100.00,no,,Example part name,2026-06-18,14 days,PCS,yes,10,Required specification,Optional note'
     ].join('\n');
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -575,6 +678,9 @@ export default function PartApplicationPage() {
             applicationId: rejectDialog.application.id,
             supplier: rejectDialog.application.supplier,
             supplierSapCode: rejectDialog.application.supplierSapCode || '',
+            supplierPartCode: rejectDialog.application.supplierPartCode || '',
+            wholesalePrice: rejectDialog.application.wholesalePrice || '',
+            retailPrice: rejectDialog.application.retailPrice || '',
             standardPrice: rejectDialog.application.standardPrice,
             partName: rejectDialog.application.partName,
             priceEffectiveDate: rejectDialog.application.priceEffectiveDate,
@@ -627,6 +733,9 @@ export default function PartApplicationPage() {
         is_pack: application.isPack,
         pack_quantity: application.packQuantity,
         supplier_sap_code: application.supplierSapCode,
+        supplier_part_code: application.supplierPartCode,
+        wholesale_price: application.wholesalePrice,
+        retail_price: application.retailPrice,
         requester_email: application.requesterEmail,
         rejection_reason: application.rejectionReason,
         requested_by: application.requesterName || application.requestedBy,
@@ -672,9 +781,12 @@ export default function PartApplicationPage() {
 
   const pendingApplications = applications.filter((app) => app.status === 'pending');
   const approvedApplications = applications.filter((app) => app.status === 'approved');
+  const prototypePricePendingApplications = applications.filter((app) => app.isPrototypePricePending && !app.standardPrice);
   const visibleApplications = applicationStatusFilter === 'all'
     ? applications
-    : applications.filter((app) => app.status === applicationStatusFilter);
+    : applicationStatusFilter === 'prototype_price_pending'
+      ? prototypePricePendingApplications
+      : applications.filter((app) => app.status === applicationStatusFilter);
 
   return (
     <div className="space-y-6">
@@ -798,6 +910,42 @@ export default function PartApplicationPage() {
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <Label htmlFor="supplierPartCode">Supplier Part Code</Label>
+                        <Input
+                          id="supplierPartCode"
+                          value={formData.supplierPartCode}
+                          onChange={(e) => setFormData(prev => ({ ...prev, supplierPartCode: e.target.value }))}
+                          placeholder="Enter supplier part code"
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="wholesalePrice">Wholesale Price</Label>
+                        <Input
+                          id="wholesalePrice"
+                          type="number"
+                          step="0.01"
+                          value={formData.wholesalePrice}
+                          onChange={(e) => setFormData(prev => ({ ...prev, wholesalePrice: e.target.value }))}
+                          placeholder="Enter wholesale price"
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="retailPrice">Retail Price</Label>
+                        <Input
+                          id="retailPrice"
+                          type="number"
+                          step="0.01"
+                          value={formData.retailPrice}
+                          onChange={(e) => setFormData(prev => ({ ...prev, retailPrice: e.target.value }))}
+                          placeholder="Enter retail price"
+                        />
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div>
                         <Label htmlFor="standardPrice">Standard Price *</Label>
@@ -808,7 +956,7 @@ export default function PartApplicationPage() {
                           value={formData.standardPrice}
                           onChange={(e) => setFormData(prev => ({ ...prev, standardPrice: e.target.value }))}
                           placeholder="Enter standard price"
-                          required={submissionMode === 'single'}
+                          required={submissionMode === 'single' && !formData.isPrototypePricePending}
                         />
                       </div>
 
@@ -887,6 +1035,56 @@ export default function PartApplicationPage() {
                             required={submissionMode === 'single' && formData.isPack}
                           />
                           <p className="mt-1 text-xs text-gray-500">1 pack = {formData.packQuantity || '?'} {formData.unit || 'unit'}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-3">
+                      <label htmlFor="prototypePricePending" className="flex items-center gap-2 text-sm font-medium text-amber-900">
+                        <input
+                          id="prototypePricePending"
+                          type="checkbox"
+                          checked={formData.isPrototypePricePending}
+                          onChange={(e) => {
+                            if (!e.target.checked) {
+                              setFormData(prev => ({ ...prev, isPrototypePricePending: false, estimatedPrice: '' }));
+                              setPrototypePassword('');
+                            }
+                          }}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        Prototype price pending
+                      </label>
+                      {!formData.isPrototypePricePending && (
+                        <div>
+                          <Label htmlFor="prototypePassword">Prototype password</Label>
+                          <Input
+                            id="prototypePassword"
+                            type="password"
+                            value={prototypePassword}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setPrototypePassword(value);
+                              if (value === 'prototype') {
+                                setFormData(prev => ({ ...prev, isPrototypePricePending: true, standardPrice: '' }));
+                              }
+                            }}
+                            placeholder="Enter password to enable prototype price pending"
+                          />
+                        </div>
+                      )}
+                      {formData.isPrototypePricePending && (
+                        <div>
+                          <Label htmlFor="estimatedPrice">Estimated Price</Label>
+                          <Input
+                            id="estimatedPrice"
+                            type="number"
+                            step="0.01"
+                            value={formData.estimatedPrice}
+                            onChange={(e) => setFormData(prev => ({ ...prev, estimatedPrice: e.target.value }))}
+                            placeholder="Optional estimate until standard price is maintained"
+                          />
+                          <p className="mt-1 text-xs text-amber-800">Standard Price can stay blank for prototype price pending applications.</p>
                         </div>
                       )}
                     </div>
@@ -991,6 +1189,17 @@ export default function PartApplicationPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="grid grid-cols-1 gap-2 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setApplicationStatusFilter(applicationStatusFilter === 'prototype_price_pending' ? 'all' : 'prototype_price_pending')}
+                  className={`rounded-lg border p-3 text-left transition ${applicationStatusFilter === 'prototype_price_pending' ? 'border-amber-500 bg-amber-50' : 'hover:bg-gray-50'}`}
+                >
+                  <p className="text-xs text-amber-700">Prototype Pending Price</p>
+                  <p className="text-xl font-bold text-amber-700">{prototypePricePendingApplications.length}</p>
+                </button>
+              </div>
+
               <div className="grid grid-cols-2 gap-2 mb-4">
                 <button
                   type="button"
@@ -1032,6 +1241,12 @@ export default function PartApplicationPage() {
                           <Badge variant="outline" className={getStatusColor(app.status)}>
                             {app.status}
                           </Badge>
+                          {app.isPrototypePricePending && !app.standardPrice && (
+                            <Badge variant="outline" className="bg-amber-50 text-amber-700">
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              Price pending
+                            </Badge>
+                          )}
                           {app.partCode && (
                             <Badge variant="outline" className="bg-green-50 text-green-700">
                               {app.partCode}
@@ -1045,7 +1260,11 @@ export default function PartApplicationPage() {
                         <p><strong>Email:</strong> {app.requesterEmail || 'N/A'}</p>
                         <p><strong>Supplier:</strong> {app.supplier}</p>
                         <p><strong>Supplier SAP Code:</strong> {app.supplierSapCode || 'N/A'}</p>
-                        <p><strong>Standard Price:</strong> ${app.standardPrice}</p>
+                        <p><strong>Supplier Part Code:</strong> {app.supplierPartCode || 'N/A'}</p>
+                        <p><strong>Wholesale Price:</strong> {app.wholesalePrice ? `$${app.wholesalePrice}` : 'N/A'}</p>
+                        <p><strong>Retail Price:</strong> {app.retailPrice ? `$${app.retailPrice}` : 'N/A'}</p>
+                        <p><strong>Standard Price:</strong> {app.standardPrice ? `$${app.standardPrice}` : (app.isPrototypePricePending ? 'Prototype price pending' : 'N/A')}</p>
+                        {app.isPrototypePricePending && <p><strong>Estimated Price:</strong> {app.estimatedPrice ? `$${app.estimatedPrice}` : 'N/A'}</p>}
                         <p><strong>Part Name:</strong> {app.partName || 'N/A'}</p>
                         <p><strong>Price Effective Date:</strong> {app.priceEffectiveDate || 'N/A'}</p>
                         <p><strong>Leading Time:</strong> {app.leadingTime || 'N/A'}</p>
@@ -1128,7 +1347,11 @@ export default function PartApplicationPage() {
                                   <div><strong>Department:</strong> {app.department}</div>
                                   <div><strong>Priority:</strong> {app.priority}</div>
                                   <div><strong>Supplier:</strong> {app.supplier}</div>
-                                  <div><strong>Standard Price:</strong> ${app.standardPrice}</div>
+                                  <div><strong>Supplier Part Code:</strong> {app.supplierPartCode || 'N/A'}</div>
+                                  <div><strong>Wholesale Price:</strong> {app.wholesalePrice ? `$${app.wholesalePrice}` : 'N/A'}</div>
+                                  <div><strong>Retail Price:</strong> {app.retailPrice ? `$${app.retailPrice}` : 'N/A'}</div>
+                                  <div><strong>Standard Price:</strong> {app.standardPrice ? `$${app.standardPrice}` : (app.isPrototypePricePending ? 'Prototype price pending' : 'N/A')}</div>
+                                  {app.isPrototypePricePending && <div><strong>Estimated Price:</strong> {app.estimatedPrice ? `$${app.estimatedPrice}` : 'N/A'}</div>}
                                   <div><strong>Part Name:</strong> {app.partName || 'N/A'}</div>
                                   <div><strong>Price Effective Date:</strong> {app.priceEffectiveDate || 'N/A'}</div>
                                   <div><strong>Leading Time:</strong> {app.leadingTime || 'N/A'}</div>

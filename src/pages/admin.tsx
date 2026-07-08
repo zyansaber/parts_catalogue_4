@@ -43,7 +43,7 @@ export default function AdminPage() {
   const [debugChecking, setDebugChecking] = useState(false);
   const [debugResults, setDebugResults] = useState<Array<{ url: string; ok: boolean }>>([]);
   const [applicationRequesters, setApplicationRequesters] = useState<Array<{ id: string; name: string; email: string }>>([]);
-  const [emailSettings, setEmailSettings] = useState({ notifyEmail: '', subjectPrefix: 'Part Application', serviceId: '', publicKey: '', privateKey: '' });
+  const [emailSettings, setEmailSettings] = useState({ notifyEmail: '', pricePendingNotifyEmail: '', subjectPrefix: 'Part Application', serviceId: '', publicKey: '', privateKey: '' });
   const [showEmailJsSettings, setShowEmailJsSettings] = useState(false);
   const detectedCfBase = (import.meta.env.VITE_CF_PUBLIC_BASE || '').trim();
   const detectedR2Base = (import.meta.env.VITE_R2_PUBLIC_BASE || DEFAULT_R2_PUBLIC_BASE).trim();
@@ -115,6 +115,7 @@ export default function AdminPage() {
     setApplicationRequesters(requesters.length ? requesters : [{ id: crypto.randomUUID(), name: '', email: '' }]);
     setEmailSettings({
       notifyEmail: settings.notifyEmail || '',
+      pricePendingNotifyEmail: settings.pricePendingNotifyEmail || '',
       subjectPrefix: settings.subjectPrefix || 'Part Application',
       serviceId: settings.serviceId || '',
       publicKey: settings.publicKey || '',
@@ -368,6 +369,16 @@ export default function AdminPage() {
                 type="email"
               />
               <p className="text-xs text-gray-500 mt-1">New application emails are sent here.</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Prototype price pending recipient</label>
+              <Input
+                value={emailSettings.pricePendingNotifyEmail}
+                onChange={(e) => setEmailSettings((prev) => ({ ...prev, pricePendingNotifyEmail: e.target.value }))}
+                placeholder="price-owner@example.com"
+                type="email"
+              />
+              <p className="text-xs text-gray-500 mt-1">14-day prototype price pending reminder emails are sent here.</p>
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Email subject prefix</label>

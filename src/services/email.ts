@@ -1,12 +1,17 @@
 export interface ApplicationEmailPayload {
-  emailType: 'submitted' | 'part_code_completed' | 'rejected';
+  emailType: 'submitted' | 'part_code_completed' | 'rejected' | 'price_pending_reminder';
   toEmail: string;
   requesterName: string;
   requesterEmail: string;
   applicationId: string;
   supplier: string;
   supplierSapCode: string;
+  supplierPartCode?: string;
+  wholesalePrice?: string;
+  retailPrice?: string;
   standardPrice: string;
+  isPrototypePricePending?: boolean;
+  estimatedPrice?: string;
   partName?: string;
   priceEffectiveDate?: string;
   leadingTime?: string;
@@ -43,6 +48,9 @@ const statusMeta = (payload: ApplicationEmailPayload) => {
   }
   if (payload.emailType === 'part_code_completed') {
     return { label: 'Completed / 已完成', color: '#16a34a', bg: '#f0fdf4' };
+  }
+  if (payload.emailType === 'price_pending_reminder') {
+    return { label: 'Prototype Price Pending / Prototype价格待维护', color: '#d97706', bg: '#fffbeb' };
   }
   return { label: 'Submitted / 已提交', color: '#2563eb', bg: '#eff6ff' };
 };
@@ -82,9 +90,14 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
               ${detailRow('Requester Email / 申请人邮箱', payload.requesterEmail)}
               ${detailRow('Supplier / 供应商', payload.supplier)}
               ${detailRow('Supplier SAP Code / 供应商SAP编码', payload.supplierSapCode)}
+              ${detailRow('Supplier Part Code / 供应商零件编码', payload.supplierPartCode)}
+              ${detailRow('Wholesale Price / 批发价', payload.wholesalePrice)}
+              ${detailRow('Retail Price / 零售价', payload.retailPrice)}
               ${detailRow('Part Name / 零件名称', payload.partName)}
               ${detailRow('Part Code / 零件编码', payload.partCode || 'Pending')}
-              ${detailRow('Standard Price / 标准价格', payload.standardPrice)}
+              ${detailRow('Standard Price / 标准价格', payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : 'N/A'))}
+              ${payload.isPrototypePricePending ? detailRow('Estimated Price / 预估价格', payload.estimatedPrice || 'N/A') : ''}
+              ${detailRow('Price Pending / 价格待维护', payload.isPrototypePricePending ? 'Yes' : 'No')}
               ${detailRow('Price Effective Date / 价格生效日期', payload.priceEffectiveDate)}
               ${detailRow('Leading Time / 交期', payload.leadingTime)}
               ${detailRow('Unit / 单位', payload.unit)}
@@ -125,6 +138,7 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
 const buildEmailTitle = (payload: ApplicationEmailPayload) => {
   if (payload.emailType === 'rejected') return `Part Application ${payload.applicationId} Rejected`;
   if (payload.emailType === 'part_code_completed') return `Part Application ${payload.applicationId} Completed`;
+  if (payload.emailType === 'price_pending_reminder') return `Prototype Price Pending ${payload.applicationId} Needs Maintenance`;
   return `New Part Application ${payload.applicationId}`;
 };
 
@@ -136,9 +150,14 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
     `Requester Email: ${payload.requesterEmail || 'N/A'}`,
     `Supplier: ${payload.supplier || 'N/A'}`,
     `Supplier SAP Code: ${payload.supplierSapCode || 'N/A'}`,
+    `Supplier Part Code: ${payload.supplierPartCode || 'N/A'}`,
+    `Wholesale Price: ${payload.wholesalePrice || 'N/A'}`,
+    `Retail Price: ${payload.retailPrice || 'N/A'}`,
     `Part Name: ${payload.partName || 'N/A'}`,
     `Part Code: ${payload.partCode || 'Pending'}`,
-    `Standard Price: ${payload.standardPrice || 'N/A'}`,
+    `Standard Price: ${payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : 'N/A')}`,
+    `Price Pending: ${payload.isPrototypePricePending ? 'Yes' : 'No'}`,
+    `Estimated Price: ${payload.estimatedPrice || 'N/A'}`,
     `Price Effective Date: ${payload.priceEffectiveDate || 'N/A'}`,
     `Leading Time: ${payload.leadingTime || 'N/A'}`,
     `Unit: ${payload.unit || 'N/A'}`,
@@ -184,7 +203,12 @@ export class EmailService {
           application_id: payload.applicationId,
           supplier: payload.supplier,
           supplier_sap_code: payload.supplierSapCode,
-          standard_price: payload.standardPrice,
+          supplier_part_code: payload.supplierPartCode || 'N/A',
+          wholesale_price: payload.wholesalePrice || 'N/A',
+          retail_price: payload.retailPrice || 'N/A',
+          standard_price: payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : 'N/A'),
+          is_prototype_price_pending: payload.isPrototypePricePending ? 'Yes' : 'No',
+          estimated_price: payload.estimatedPrice || 'N/A',
           part_name: payload.partName || 'N/A',
           price_effective_date: payload.priceEffectiveDate || 'N/A',
           leading_time: payload.leadingTime || 'N/A',
