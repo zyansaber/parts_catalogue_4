@@ -46,15 +46,6 @@ interface PartApplication {
   retailPrice?: string;
   applicationFileUrl?: string;
   applicationFileName?: string;
-  managerApprovalFileUrl?: string;
-  managerApprovalFileName?: string;
-  applicationType?: 'single' | 'van_code' | 'price_supplier_change';
-  isSalesItem?: boolean;
-  vanCodeType?: 'semivan' | 'finished_goods' | '';
-  originalSupplier?: string;
-  originalPrice?: string;
-  newSupplier?: string;
-  newPrice?: string;
   rejectionReason?: string;
   rejectedAt?: string;
 }
@@ -96,10 +87,9 @@ export default function PartApplicationPage() {
   const [requesters, setRequesters] = useState<ApplicationRequester[]>([]);
   const [emailSettings, setEmailSettings] = useState<ApplicationEmailSettings>({ notifyEmail: '' });
   const [applicationFile, setApplicationFile] = useState<File | null>(null);
-  const [managerApprovalFile, setManagerApprovalFile] = useState<File | null>(null);
   const [partCodeDrafts, setPartCodeDrafts] = useState<Record<string, string>>({});
-  const [submissionMode, setSubmissionMode] = useState<'single' | 'van_code' | 'price_supplier_change'>('single');
-  const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'pending' | 'approved' | 'prototype_price_pending' | 'price_supplier_change'>('pending');
+  const [submissionMode, setSubmissionMode] = useState<'single' | 'bulk'>('single');
+  const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'pending' | 'approved' | 'prototype_price_pending'>('pending');
   const [prototypePassword, setPrototypePassword] = useState('');
 
   // Form state
@@ -109,14 +99,6 @@ export default function PartApplicationPage() {
     department: '',
     priority: 'medium' as 'low' | 'medium' | 'high',
     specifications: '',
-    partCode: '',
-    applicationType: 'single' as 'single' | 'van_code' | 'price_supplier_change',
-    isSalesItem: false,
-    vanCodeType: '' as 'semivan' | 'finished_goods' | '',
-    originalSupplier: '',
-    originalPrice: '',
-    newSupplier: '',
-    newPrice: '',
     supplier: '',
     supplierSapCode: '',
     supplierPartCode: '',
@@ -180,14 +162,6 @@ export default function PartApplicationPage() {
       department: '',
       priority: 'medium',
       specifications: '',
-      partCode: '',
-      applicationType: 'single',
-      isSalesItem: false,
-      vanCodeType: '',
-      originalSupplier: '',
-      originalPrice: '',
-      newSupplier: '',
-      newPrice: '',
       supplier: '',
       supplierSapCode: '',
       supplierPartCode: '',
@@ -208,7 +182,6 @@ export default function PartApplicationPage() {
     setSelectedFile(null);
     setImagePreview(null);
     setApplicationFile(null);
-    setManagerApprovalFile(null);
     setSubmissionMode('single');
     setPrototypePassword('');
   };
@@ -296,11 +269,11 @@ export default function PartApplicationPage() {
     return values;
   };
 
-  const parseVanCodeApplicationFile = async (file: File) => {
+  const parseBulkApplicationFile = async (file: File) => {
     const text = await file.text();
     const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (lines.length < 2) {
-      throw new Error('Van code application CSV must include a header row and at least one data row.');
+      throw new Error('Bulk upload CSV must include a header row and at least one data row.');
     }
 
     const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase().replace(/\s+/g, '_'));
@@ -311,8 +284,6 @@ export default function PartApplicationPage() {
         return acc;
       }, {} as Record<string, string>);
 
-      const vanCodeTypeValue = (row.van_code_type || row.type || '').toLowerCase().replace(/\s+/g, '_');
-      const vanCodeType = (vanCodeTypeValue === 'finished_goods' || vanCodeTypeValue === 'finishedgoods' ? 'finished_goods' : vanCodeTypeValue === 'semivan' ? 'semivan' : '') as 'semivan' | 'finished_goods' | '';
       const supplier = row.preferred_supplier || row.supplier || '';
       const supplierSapCode = row.preferred_supplier_sap_code || row.supplier_sap_code || '';
       const supplierPartCode = row.supplier_part_code || row.supplier_part_number || '';
@@ -330,20 +301,18 @@ export default function PartApplicationPage() {
       const isPack = ['yes', 'true', '1', 'y'].includes(isPackValue);
       const packQuantity = row.pack_quantity || row.pack_qty || '';
       const specifications = row.specifications || '';
-      if (!vanCodeType || !partName || !priceEffectiveDate || !estimatedPrice) {
-        throw new Error(`Row ${index + 2} is missing required fields. Van code rows need Van Code Type (semivan or finished goods), Part Name, Price Effective Date, and Estimated Price.`);
+      if (!supplier || !supplierSapCode || (!standardPrice && !isPrototypePricePending) || !partName || !priceEffectiveDate || !leadingTime || !unit || !isPackValue || !specifications || (isPack && !packQuantity)) {
+        throw new Error(`Row ${index + 2} is missing required fields. Bulk rows need Preferred Supplier, Preferred Supplier SAP Code, Standard Price (unless Prototype Price Pending is yes), Part Name, Price Effective Date, Leading Time, Unit, Is Pack, Specifications, and Pack Quantity when Is Pack is yes.`);
       }
 
       return {
-        applicationType: 'van_code' as const,
-        vanCodeType,
         supplier,
         supplierSapCode,
         supplierPartCode,
         wholesalePrice,
         retailPrice,
         standardPrice,
-        isPrototypePricePending: true,
+        isPrototypePricePending,
         estimatedPrice,
         partName,
         priceEffectiveDate,
@@ -391,8 +360,7 @@ export default function PartApplicationPage() {
           standardPrice: application.standardPrice,
           isPrototypePricePending: application.isPrototypePricePending,
           estimatedPrice: application.estimatedPrice,
-          partCode: application.partCode,
-      partName: application.partName,
+          partName: application.partName,
           priceEffectiveDate: application.priceEffectiveDate,
           leadingTime: application.leadingTime,
           unit: application.unit,
@@ -416,7 +384,7 @@ export default function PartApplicationPage() {
     }
   };
 
-  const sendSubmissionEmail = async (application: PartApplication, applicationFileUrl = '', managerApprovalFileUrl = application.managerApprovalFileUrl || '') => {
+  const sendSubmissionEmail = async (application: PartApplication, applicationFileUrl = '') => {
     if (!emailSettings.notifyEmail) return;
 
     await EmailService.sendApplicationEmail({
@@ -441,15 +409,7 @@ export default function PartApplicationPage() {
       packQuantity: application.packQuantity,
       specifications: application.specifications,
       notes: application.notes,
-      applicationType: application.applicationType,
-      isSalesItem: application.isSalesItem,
-      vanCodeType: application.vanCodeType,
-      originalSupplier: application.originalSupplier,
-      originalPrice: application.originalPrice,
-      newSupplier: application.newSupplier,
-      newPrice: application.newPrice,
       applicationFileUrl,
-      managerApprovalFileUrl,
       imageUrl: application.imageUrl,
       submittedAt: application.submittedAt,
       subjectPrefix: emailSettings.subjectPrefix,
@@ -476,42 +436,26 @@ export default function PartApplicationPage() {
       return;
     }
 
-    if (submissionMode === 'single' && (!formData.supplier || !formData.supplierSapCode || (!formData.standardPrice && !formData.isPrototypePricePending) || !formData.partName || !formData.priceEffectiveDate || !formData.leadingTime || !formData.unit || !formData.specifications || (formData.isPack && !formData.packQuantity) || (formData.isSalesItem && (!formData.wholesalePrice || !formData.retailPrice)) || !selectedFile)) {
-      showMessage('error', 'Please fill in all required fields and upload a part image. Wholesale Price and Retail Price are required for sales items.');
+    if (submissionMode === 'single' && (!formData.supplier || !formData.supplierSapCode || (!formData.standardPrice && !formData.isPrototypePricePending) || !formData.partName || !formData.priceEffectiveDate || !formData.leadingTime || !formData.unit || !formData.specifications || (formData.isPack && !formData.packQuantity) || !selectedFile)) {
+      showMessage('error', 'Please fill in all required fields and upload a part image');
       return;
     }
 
-    if (!managerApprovalFile) {
-      showMessage('error', 'Please upload the signed Manager Approval file');
-      return;
-    }
-
-    if (submissionMode === 'van_code' && (!formData.vanCodeType || !formData.partName || !formData.priceEffectiveDate || !formData.estimatedPrice)) {
-      showMessage('error', 'Please fill Van Code Type, Part Name, Price Effective Date, and Estimated Price');
-      return;
-    }
-
-    if (submissionMode === 'price_supplier_change' && (!formData.partCode || !formData.partName || !formData.originalSupplier || !formData.originalPrice || !formData.newSupplier || !formData.newPrice)) {
-      showMessage('error', 'Please fill Parts Code, Parts Name, Original Supplier, Original Price, New Supplier, and New Price');
-      return;
-    }
-
-    if (submissionMode === 'van_code' && applicationFile && !applicationFile.name.toLowerCase().endsWith('.csv')) {
-      showMessage('error', 'Van code application file must be a CSV.');
+    if (submissionMode === 'bulk' && !applicationFile) {
+      showMessage('error', 'Please upload the bulk application file');
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      if (submissionMode === 'van_code' && applicationFile) {
+      if (submissionMode === 'bulk') {
         if (!applicationFile || !applicationFile.name.toLowerCase().endsWith('.csv')) {
-          throw new Error('Van code application currently supports CSV files generated from the template.');
+          throw new Error('Bulk upload currently supports CSV files generated from the template.');
         }
 
-        const rows = await parseVanCodeApplicationFile(applicationFile);
-        const uploadedFileUrl = await FirebaseService.uploadApplicationAttachment(applicationFile, `VAN-${Date.now()}`);
-        const managerApprovalFileUrl = await FirebaseService.uploadApplicationAttachment(managerApprovalFile, `MANAGER-${Date.now()}`);
+        const rows = await parseBulkApplicationFile(applicationFile);
+        const uploadedFileUrl = await FirebaseService.uploadApplicationAttachment(applicationFile, `BULK-${Date.now()}`);
         const createdApplications: PartApplication[] = [];
 
         for (const [index, row] of rows.entries()) {
@@ -528,8 +472,6 @@ export default function PartApplicationPage() {
             imageUrl: '',
             applicationFileUrl: uploadedFileUrl,
             applicationFileName: applicationFile.name,
-            managerApprovalFileUrl,
-            managerApprovalFileName: managerApprovalFile.name,
           };
 
           await FirebaseService.savePartApplication(newApplication);
@@ -541,8 +483,7 @@ export default function PartApplicationPage() {
           await sendSubmissionEmail({
             ...createdApplications[0],
             id: `${createdApplications[0].id} - ${createdApplications[createdApplications.length - 1].id}`,
-            applicationType: 'van_code',
-            supplier: `Van code application (${createdApplications.length} applications)`,
+            supplier: `Bulk upload (${createdApplications.length} applications)`,
             supplierSapCode: 'Multiple',
             supplierPartCode: 'Multiple',
             wholesalePrice: 'Multiple',
@@ -556,24 +497,21 @@ export default function PartApplicationPage() {
             unit: 'Multiple',
             isPack: false,
             packQuantity: '',
-            specifications: `Van code application file: ${applicationFile.name}`,
-            managerApprovalFileUrl,
-            managerApprovalFileName: managerApprovalFile.name,
-          }, uploadedFileUrl, managerApprovalFileUrl);
+            specifications: `Bulk upload file: ${applicationFile.name}`,
+          }, uploadedFileUrl);
         } catch (emailError) {
-          console.error('Van code submission email failed:', emailError);
+          console.error('Bulk submission email failed:', emailError);
           emailWarning = ` Email failed: ${emailError instanceof Error ? emailError.message : 'Unknown EmailJS error'}`;
         }
 
         await loadApplications();
-        showMessage(emailWarning ? 'error' : 'success', `${createdApplications.length} van code applications submitted.${emailWarning}`);
+        showMessage(emailWarning ? 'error' : 'success', `${createdApplications.length} part applications submitted from bulk upload.${emailWarning}`);
         resetForm();
         return;
       }
 
       const applicationId = generateApplicationId();
       const imageUrl = selectedFile ? await FirebaseService.uploadPartApplicationImage(selectedFile, applicationId) : '';
-      const managerApprovalFileUrl = await FirebaseService.uploadApplicationAttachment(managerApprovalFile, `MANAGER-${applicationId}-${Date.now()}`);
 
       const newApplication: PartApplication = {
         ...formData,
@@ -582,23 +520,16 @@ export default function PartApplicationPage() {
         requesterName: selectedRequester.name,
         requesterEmail: selectedRequester.email,
         submittedAt: new Date().toISOString(),
-        applicationType: submissionMode,
-        isPrototypePricePending: submissionMode === 'van_code' ? true : formData.isPrototypePricePending,
-        standardPrice: submissionMode === 'van_code' ? '' : formData.standardPrice,
-        specifications: submissionMode === 'price_supplier_change' ? `Price/supplier change for ${formData.partCode}` : formData.specifications,
-        supplier: submissionMode === 'price_supplier_change' ? formData.newSupplier : formData.supplier,
         status: 'pending',
         imageUrl,
         applicationFileUrl: '',
-        applicationFileName: applicationFile?.name || '',
-        managerApprovalFileUrl,
-        managerApprovalFileName: managerApprovalFile.name
+        applicationFileName: ''
       };
 
       await FirebaseService.savePartApplication(newApplication);
       let emailWarning = '';
       try {
-        await sendSubmissionEmail(newApplication, '', managerApprovalFileUrl);
+        await sendSubmissionEmail(newApplication);
       } catch (emailError) {
         console.error('Submission email failed:', emailError);
         emailWarning = ` Email failed: ${emailError instanceof Error ? emailError.message : 'Unknown EmailJS error'}`;
@@ -674,13 +605,13 @@ export default function PartApplicationPage() {
 
   const downloadTemplate = () => {
     const content = [
-      'Van Code Type,Part Name,Price Effective Date,Estimated Price,Notes',
-      'semivan,Example semivan part,2026-06-18,100.00,Optional note'
+      'Preferred Supplier,Preferred Supplier SAP Code,Supplier Part Code,Wholesale Price,Retail Price,Standard Price,Prototype Price Pending,Estimated Price,Part Name,Price Effective Date,Leading Time,Unit,Is Pack,Pack Quantity,Specifications,Notes',
+      'Example Supplier,SAP12345,SUP-001,85.00,120.00,100.00,no,,Example part name,2026-06-18,14 days,PCS,yes,10,Required specification,Optional note'
     ].join('\n');
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = 'van-code-application-template.csv';
+    link.download = 'part-application-template.csv';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -851,14 +782,11 @@ export default function PartApplicationPage() {
   const pendingApplications = applications.filter((app) => app.status === 'pending');
   const approvedApplications = applications.filter((app) => app.status === 'approved');
   const prototypePricePendingApplications = applications.filter((app) => app.isPrototypePricePending && !app.standardPrice);
-  const priceSupplierChangeApplications = applications.filter((app) => app.applicationType === 'price_supplier_change');
   const visibleApplications = applicationStatusFilter === 'all'
     ? applications
     : applicationStatusFilter === 'prototype_price_pending'
       ? prototypePricePendingApplications
-      : applicationStatusFilter === 'price_supplier_change'
-        ? priceSupplierChangeApplications
-        : applications.filter((app) => app.status === applicationStatusFilter);
+      : applications.filter((app) => app.status === applicationStatusFilter);
 
   return (
     <div className="space-y-6">
@@ -939,7 +867,7 @@ export default function PartApplicationPage() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-lg border p-2">
+                <div className="grid grid-cols-2 gap-3 rounded-lg border p-2">
                   <Button
                     type="button"
                     variant={submissionMode === 'single' ? 'default' : 'outline'}
@@ -949,33 +877,15 @@ export default function PartApplicationPage() {
                   </Button>
                   <Button
                     type="button"
-                    variant={submissionMode === 'van_code' ? 'default' : 'outline'}
-                    onClick={() => setSubmissionMode('van_code')}
+                    variant={submissionMode === 'bulk' ? 'default' : 'outline'}
+                    onClick={() => setSubmissionMode('bulk')}
                   >
-                    Van Code Application
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={submissionMode === 'price_supplier_change' ? 'default' : 'outline'}
-                    onClick={() => setSubmissionMode('price_supplier_change')}
-                  >
-                    Price/Supplier Change
+                    Bulk Upload
                   </Button>
                 </div>
 
                 {submissionMode === 'single' ? (
                   <>
-                    <label htmlFor="isSalesItem" className="flex items-center gap-2 rounded-lg border p-3 text-sm font-medium">
-                      <input
-                        id="isSalesItem"
-                        type="checkbox"
-                        checked={formData.isSalesItem}
-                        onChange={(e) => setFormData(prev => ({ ...prev, isSalesItem: e.target.checked }))}
-                        className="h-4 w-4 rounded border-gray-300"
-                      />
-                      Will this item enter sales?
-                    </label>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="supplier">Preferred Supplier *</Label>
@@ -1012,7 +922,7 @@ export default function PartApplicationPage() {
                       </div>
 
                       <div>
-                        <Label htmlFor="wholesalePrice">Wholesale Price{formData.isSalesItem ? ' *' : ''}</Label>
+                        <Label htmlFor="wholesalePrice">Wholesale Price</Label>
                         <Input
                           id="wholesalePrice"
                           type="number"
@@ -1020,12 +930,11 @@ export default function PartApplicationPage() {
                           value={formData.wholesalePrice}
                           onChange={(e) => setFormData(prev => ({ ...prev, wholesalePrice: e.target.value }))}
                           placeholder="Enter wholesale price"
-                          required={submissionMode === 'single' && formData.isSalesItem}
                         />
                       </div>
 
                       <div>
-                        <Label htmlFor="retailPrice">Retail Price{formData.isSalesItem ? ' *' : ''}</Label>
+                        <Label htmlFor="retailPrice">Retail Price</Label>
                         <Input
                           id="retailPrice"
                           type="number"
@@ -1033,7 +942,6 @@ export default function PartApplicationPage() {
                           value={formData.retailPrice}
                           onChange={(e) => setFormData(prev => ({ ...prev, retailPrice: e.target.value }))}
                           placeholder="Enter retail price"
-                          required={submissionMode === 'single' && formData.isSalesItem}
                         />
                       </div>
                     </div>
@@ -1226,60 +1134,28 @@ export default function PartApplicationPage() {
                       />
                     </div>
                   </>
-                ) : submissionMode === 'van_code' ? (
-                  <div className="space-y-4 rounded-lg border p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                ) : (
+                  <div className="space-y-3 rounded-lg border p-4">
+                    <div className="flex items-center justify-between gap-3">
                       <div>
-                        <Label htmlFor="vanCodeType">Type *</Label>
-                        <Select value={formData.vanCodeType} onValueChange={(value: 'semivan' | 'finished_goods') => setFormData(prev => ({ ...prev, vanCodeType: value, isPrototypePricePending: true, standardPrice: '' }))}>
-                          <SelectTrigger><SelectValue placeholder="Select semivan or finished goods" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="semivan">Semivan</SelectItem>
-                            <SelectItem value="finished_goods">Finished Goods</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <Label htmlFor="applicationFile">Bulk Application File *</Label>
+                        <p className="text-xs text-gray-500">Use this instead of filling a single application. CSV rows become separate applications for the selected requester.</p>
                       </div>
-                      <div>
-                        <Label htmlFor="vanPartName">Part Name *</Label>
-                        <Input id="vanPartName" value={formData.partName} onChange={(e) => setFormData(prev => ({ ...prev, partName: e.target.value, isPrototypePricePending: true }))} required={submissionMode === 'van_code'} />
-                      </div>
-                      <div>
-                        <Label htmlFor="vanPriceEffectiveDate">Price Effective Date *</Label>
-                        <Input id="vanPriceEffectiveDate" type="date" value={formData.priceEffectiveDate} onChange={(e) => setFormData(prev => ({ ...prev, priceEffectiveDate: e.target.value, isPrototypePricePending: true }))} required={submissionMode === 'van_code'} />
-                      </div>
-                      <div>
-                        <Label htmlFor="vanEstimatedPrice">Estimated Price *</Label>
-                        <Input id="vanEstimatedPrice" type="number" step="0.01" value={formData.estimatedPrice} onChange={(e) => setFormData(prev => ({ ...prev, estimatedPrice: e.target.value, isPrototypePricePending: true }))} required={submissionMode === 'van_code'} />
-                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={downloadTemplate}>
+                        <Download className="h-4 w-4 mr-2" />
+                        Download Template
+                      </Button>
                     </div>
-                    <div className="flex items-center justify-between gap-3 border-t pt-3">
-                      <div>
-                        <Label htmlFor="applicationFile">Optional Van Code CSV</Label>
-                        <p className="text-xs text-gray-500">Upload a CSV only when submitting multiple van code applications.</p>
-                      </div>
-                      <Button type="button" variant="outline" size="sm" onClick={downloadTemplate}><Download className="h-4 w-4 mr-2" />Download Template</Button>
-                    </div>
-                    <Input id="applicationFile" type="file" accept=".csv" onChange={(e) => setApplicationFile(e.target.files?.[0] || null)} />
+                    <Input
+                      id="applicationFile"
+                      type="file"
+                      accept=".csv"
+                      onChange={(e) => setApplicationFile(e.target.files?.[0] || null)}
+                      required={submissionMode === 'bulk'}
+                    />
                     {applicationFile && <p className="text-xs text-gray-500 mt-1">Selected: {applicationFile.name}</p>}
                   </div>
-                ) : (
-                  <div className="space-y-4 rounded-lg border p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div><Label htmlFor="changePartCode">Parts Code *</Label><Input id="changePartCode" value={formData.partCode} onChange={(e) => setFormData(prev => ({ ...prev, partCode: e.target.value }))} required={submissionMode === 'price_supplier_change'} /></div>
-                      <div><Label htmlFor="changePartName">Parts Name *</Label><Input id="changePartName" value={formData.partName} onChange={(e) => setFormData(prev => ({ ...prev, partName: e.target.value }))} required={submissionMode === 'price_supplier_change'} /></div>
-                      <div><Label htmlFor="originalSupplier">Original Supplier *</Label><Input id="originalSupplier" value={formData.originalSupplier} onChange={(e) => setFormData(prev => ({ ...prev, originalSupplier: e.target.value }))} required={submissionMode === 'price_supplier_change'} /></div>
-                      <div><Label htmlFor="originalPrice">Original Price *</Label><Input id="originalPrice" type="number" step="0.01" value={formData.originalPrice} onChange={(e) => setFormData(prev => ({ ...prev, originalPrice: e.target.value }))} required={submissionMode === 'price_supplier_change'} /></div>
-                      <div><Label htmlFor="newSupplier">New Supplier *</Label><Input id="newSupplier" value={formData.newSupplier} onChange={(e) => setFormData(prev => ({ ...prev, newSupplier: e.target.value, supplier: e.target.value }))} required={submissionMode === 'price_supplier_change'} /></div>
-                      <div><Label htmlFor="newPrice">New Price *</Label><Input id="newPrice" type="number" step="0.01" value={formData.newPrice} onChange={(e) => setFormData(prev => ({ ...prev, newPrice: e.target.value, standardPrice: e.target.value }))} required={submissionMode === 'price_supplier_change'} /></div>
-                    </div>
-                  </div>
                 )}
-
-                <div className="rounded-lg border p-4">
-                  <Label htmlFor="managerApprovalFile">Signed Manager Approval *</Label>
-                  <Input id="managerApprovalFile" type="file" onChange={(e) => setManagerApprovalFile(e.target.files?.[0] || null)} required className="mt-2" />
-                  {managerApprovalFile && <p className="text-xs text-gray-500 mt-1">Selected: {managerApprovalFile.name}</p>}
-                </div>
 
                 <Button
                   type="submit"
@@ -1313,22 +1189,14 @@ export default function PartApplicationPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="grid grid-cols-1 gap-2 mb-4">
                 <button
                   type="button"
                   onClick={() => setApplicationStatusFilter(applicationStatusFilter === 'prototype_price_pending' ? 'all' : 'prototype_price_pending')}
                   className={`rounded-lg border p-3 text-left transition ${applicationStatusFilter === 'prototype_price_pending' ? 'border-amber-500 bg-amber-50' : 'hover:bg-gray-50'}`}
                 >
-                  <p className="text-xs text-amber-700">Price Pending</p>
+                  <p className="text-xs text-amber-700">Prototype Pending Price</p>
                   <p className="text-xl font-bold text-amber-700">{prototypePricePendingApplications.length}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setApplicationStatusFilter(applicationStatusFilter === 'price_supplier_change' ? 'all' : 'price_supplier_change')}
-                  className={`rounded-lg border p-3 text-left transition ${applicationStatusFilter === 'price_supplier_change' ? 'border-purple-500 bg-purple-50' : 'hover:bg-gray-50'}`}
-                >
-                  <p className="text-xs text-purple-700">Price/Supplier Change</p>
-                  <p className="text-xl font-bold text-purple-700">{priceSupplierChangeApplications.length}</p>
                 </button>
               </div>
 
@@ -1390,13 +1258,11 @@ export default function PartApplicationPage() {
                       <div className="text-xs text-gray-600">
                         <p><strong>Requested by:</strong> {app.requesterName || app.requestedBy}</p>
                         <p><strong>Email:</strong> {app.requesterEmail || 'N/A'}</p>
-                        <p><strong>Type:</strong> {app.applicationType === 'van_code' ? `Van Code - ${app.vanCodeType === 'finished_goods' ? 'Finished Goods' : 'Semivan'}` : app.applicationType === 'price_supplier_change' ? 'Price/Supplier Change' : 'Single Application'}</p>
                         <p><strong>Supplier:</strong> {app.supplier}</p>
                         <p><strong>Supplier SAP Code:</strong> {app.supplierSapCode || 'N/A'}</p>
                         <p><strong>Supplier Part Code:</strong> {app.supplierPartCode || 'N/A'}</p>
                         <p><strong>Wholesale Price:</strong> {app.wholesalePrice ? `$${app.wholesalePrice}` : 'N/A'}</p>
                         <p><strong>Retail Price:</strong> {app.retailPrice ? `$${app.retailPrice}` : 'N/A'}</p>
-                        {app.applicationType === 'price_supplier_change' && <><p><strong>Original Supplier:</strong> {app.originalSupplier || 'N/A'}</p><p><strong>Original Price:</strong> {app.originalPrice || 'N/A'}</p><p><strong>New Supplier:</strong> {app.newSupplier || 'N/A'}</p><p><strong>New Price:</strong> {app.newPrice || 'N/A'}</p></>}
                         <p><strong>Standard Price:</strong> {app.standardPrice ? `$${app.standardPrice}` : (app.isPrototypePricePending ? 'Prototype price pending' : 'N/A')}</p>
                         {app.isPrototypePricePending && <p><strong>Estimated Price:</strong> {app.estimatedPrice ? `$${app.estimatedPrice}` : 'N/A'}</p>}
                         <p><strong>Part Name:</strong> {app.partName || 'N/A'}</p>
@@ -1406,16 +1272,6 @@ export default function PartApplicationPage() {
                         <p><strong>Is Pack:</strong> {app.isPack ? `Yes (${app.packQuantity || '-'} ${app.unit || 'unit'} per pack)` : 'No'}</p>
                         {app.rejectionReason && <p><strong>Reject Reason:</strong> {app.rejectionReason}</p>}
                       </div>
-
-                      {app.managerApprovalFileUrl && (
-                        <div className="flex items-center justify-between text-xs text-gray-500">
-                          <span>Manager Approval: {app.managerApprovalFileName || 'uploaded file'}</span>
-                          <Button variant="ghost" size="sm" onClick={() => window.open(app.managerApprovalFileUrl, '_blank', 'noopener,noreferrer')} className="h-6 px-2 text-xs">
-                            <Download className="h-3 w-3 mr-1" />
-                            Open
-                          </Button>
-                        </div>
-                      )}
 
                       {app.applicationFileUrl && (
                         <div className="flex items-center justify-between text-xs text-gray-500">
@@ -1506,17 +1362,7 @@ export default function PartApplicationPage() {
                                 <div><strong>Specifications:</strong> {app.specifications}</div>
                                 {app.notes && <div><strong>Notes:</strong> {app.notes}</div>}
                                 {app.rejectionReason && <div><strong>Reject Reason:</strong> {app.rejectionReason}</div>}
-                                {app.managerApprovalFileUrl && (
-                        <div className="flex items-center justify-between text-xs text-gray-500">
-                          <span>Manager Approval: {app.managerApprovalFileName || 'uploaded file'}</span>
-                          <Button variant="ghost" size="sm" onClick={() => window.open(app.managerApprovalFileUrl, '_blank', 'noopener,noreferrer')} className="h-6 px-2 text-xs">
-                            <Download className="h-3 w-3 mr-1" />
-                            Open
-                          </Button>
-                        </div>
-                      )}
-
-                      {app.applicationFileUrl && (
+                                {app.applicationFileUrl && (
                         <div className="flex items-center justify-between text-xs text-gray-500">
                           <span>Application: {app.applicationFileName || 'uploaded file'}</span>
                           <Button variant="ghost" size="sm" onClick={() => window.open(app.applicationFileUrl, '_blank', 'noopener,noreferrer')} className="h-6 px-2 text-xs">
