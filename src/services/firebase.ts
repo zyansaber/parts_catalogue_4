@@ -474,7 +474,10 @@ export class FirebaseService {
         specifications: application.specifications || '',
         supplier: application.supplier,
         supplierSapCode: application.supplierSapCode,
-        standardPrice: application.standardPrice,
+        standardPrice: application.standardPrice || '',
+        isPrototypePricePending: Boolean(application.isPrototypePricePending),
+        estimatedPrice: application.estimatedPrice || '',
+        prototypePriceReminderSentAt: application.prototypePriceReminderSentAt || '',
         partName: application.partName || '',
         priceEffectiveDate: application.priceEffectiveDate || '',
         leadingTime: application.leadingTime || '',
@@ -612,10 +615,10 @@ export class FirebaseService {
   static async getApplicationEmailSettings(): Promise<any> {
     try {
       const snapshot = await get(ref(database, 'applicationConfig/emailSettings'));
-      return snapshot.exists() ? snapshot.val() : { notifyEmail: '', subjectPrefix: 'Part Application', serviceId: '', publicKey: '', privateKey: '' };
+      return snapshot.exists() ? snapshot.val() : { notifyEmail: '', pricePendingNotifyEmail: '', subjectPrefix: 'Part Application', serviceId: '', publicKey: '', privateKey: '' };
     } catch (error) {
       console.error('Error loading application email settings:', error);
-      return { notifyEmail: '', subjectPrefix: 'Part Application', serviceId: '', publicKey: '', privateKey: '' };
+      return { notifyEmail: '', pricePendingNotifyEmail: '', subjectPrefix: 'Part Application', serviceId: '', publicKey: '', privateKey: '' };
     }
   }
 
