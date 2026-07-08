@@ -41,6 +41,9 @@ interface PartApplication {
   requesterName?: string;
   requesterEmail?: string;
   supplierSapCode?: string;
+  supplierPartCode?: string;
+  wholesalePrice?: string;
+  retailPrice?: string;
   applicationFileUrl?: string;
   applicationFileName?: string;
   rejectionReason?: string;
@@ -98,6 +101,9 @@ export default function PartApplicationPage() {
     specifications: '',
     supplier: '',
     supplierSapCode: '',
+    supplierPartCode: '',
+    wholesalePrice: '',
+    retailPrice: '',
     standardPrice: '',
     isPrototypePricePending: false,
     estimatedPrice: '',
@@ -158,6 +164,9 @@ export default function PartApplicationPage() {
       specifications: '',
       supplier: '',
       supplierSapCode: '',
+      supplierPartCode: '',
+      wholesalePrice: '',
+      retailPrice: '',
       standardPrice: '',
       isPrototypePricePending: false,
       estimatedPrice: '',
@@ -277,6 +286,9 @@ export default function PartApplicationPage() {
 
       const supplier = row.preferred_supplier || row.supplier || '';
       const supplierSapCode = row.preferred_supplier_sap_code || row.supplier_sap_code || '';
+      const supplierPartCode = row.supplier_part_code || row.supplier_part_number || '';
+      const wholesalePrice = row.wholesale_price || '';
+      const retailPrice = row.retail_price || '';
       const isPrototypePricePendingValue = (row.prototype_price_pending || row.price_pending || '').toLowerCase();
       const isPrototypePricePending = ['yes', 'true', '1', 'y'].includes(isPrototypePricePendingValue);
       const standardPrice = row.standard_price || row.price || '';
@@ -296,6 +308,9 @@ export default function PartApplicationPage() {
       return {
         supplier,
         supplierSapCode,
+        supplierPartCode,
+        wholesalePrice,
+        retailPrice,
         standardPrice,
         isPrototypePricePending,
         estimatedPrice,
@@ -339,6 +354,9 @@ export default function PartApplicationPage() {
           applicationId: application.id,
           supplier: application.supplier,
           supplierSapCode: application.supplierSapCode || '',
+          supplierPartCode: application.supplierPartCode || '',
+          wholesalePrice: application.wholesalePrice || '',
+          retailPrice: application.retailPrice || '',
           standardPrice: application.standardPrice,
           isPrototypePricePending: application.isPrototypePricePending,
           estimatedPrice: application.estimatedPrice,
@@ -377,6 +395,9 @@ export default function PartApplicationPage() {
       applicationId: application.id,
       supplier: application.supplier,
       supplierSapCode: application.supplierSapCode || '',
+      supplierPartCode: application.supplierPartCode || '',
+      wholesalePrice: application.wholesalePrice || '',
+      retailPrice: application.retailPrice || '',
       standardPrice: application.standardPrice,
       isPrototypePricePending: application.isPrototypePricePending,
       estimatedPrice: application.estimatedPrice,
@@ -464,6 +485,9 @@ export default function PartApplicationPage() {
             id: `${createdApplications[0].id} - ${createdApplications[createdApplications.length - 1].id}`,
             supplier: `Bulk upload (${createdApplications.length} applications)`,
             supplierSapCode: 'Multiple',
+            supplierPartCode: 'Multiple',
+            wholesalePrice: 'Multiple',
+            retailPrice: 'Multiple',
             standardPrice: 'Multiple',
             isPrototypePricePending: createdApplications.some((app) => app.isPrototypePricePending),
             estimatedPrice: 'Multiple',
@@ -542,6 +566,9 @@ export default function PartApplicationPage() {
             applicationId: application.id,
             supplier: application.supplier,
             supplierSapCode: application.supplierSapCode || '',
+            supplierPartCode: application.supplierPartCode || '',
+            wholesalePrice: application.wholesalePrice || '',
+            retailPrice: application.retailPrice || '',
             standardPrice: application.standardPrice,
             specifications: application.specifications,
             notes: application.notes,
@@ -578,8 +605,8 @@ export default function PartApplicationPage() {
 
   const downloadTemplate = () => {
     const content = [
-      'Preferred Supplier,Preferred Supplier SAP Code,Standard Price,Prototype Price Pending,Estimated Price,Part Name,Price Effective Date,Leading Time,Unit,Is Pack,Pack Quantity,Specifications,Notes',
-      'Example Supplier,SAP12345,100.00,no,,Example part name,2026-06-18,14 days,PCS,yes,10,Required specification,Optional note'
+      'Preferred Supplier,Preferred Supplier SAP Code,Supplier Part Code,Wholesale Price,Retail Price,Standard Price,Prototype Price Pending,Estimated Price,Part Name,Price Effective Date,Leading Time,Unit,Is Pack,Pack Quantity,Specifications,Notes',
+      'Example Supplier,SAP12345,SUP-001,85.00,120.00,100.00,no,,Example part name,2026-06-18,14 days,PCS,yes,10,Required specification,Optional note'
     ].join('\n');
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -651,6 +678,9 @@ export default function PartApplicationPage() {
             applicationId: rejectDialog.application.id,
             supplier: rejectDialog.application.supplier,
             supplierSapCode: rejectDialog.application.supplierSapCode || '',
+            supplierPartCode: rejectDialog.application.supplierPartCode || '',
+            wholesalePrice: rejectDialog.application.wholesalePrice || '',
+            retailPrice: rejectDialog.application.retailPrice || '',
             standardPrice: rejectDialog.application.standardPrice,
             partName: rejectDialog.application.partName,
             priceEffectiveDate: rejectDialog.application.priceEffectiveDate,
@@ -703,6 +733,9 @@ export default function PartApplicationPage() {
         is_pack: application.isPack,
         pack_quantity: application.packQuantity,
         supplier_sap_code: application.supplierSapCode,
+        supplier_part_code: application.supplierPartCode,
+        wholesale_price: application.wholesalePrice,
+        retail_price: application.retailPrice,
         requester_email: application.requesterEmail,
         rejection_reason: application.rejectionReason,
         requested_by: application.requesterName || application.requestedBy,
@@ -873,6 +906,42 @@ export default function PartApplicationPage() {
                           onChange={(e) => setFormData(prev => ({ ...prev, supplierSapCode: e.target.value }))}
                           placeholder="Enter supplier SAP code"
                           required={submissionMode === 'single'}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <Label htmlFor="supplierPartCode">Supplier Part Code</Label>
+                        <Input
+                          id="supplierPartCode"
+                          value={formData.supplierPartCode}
+                          onChange={(e) => setFormData(prev => ({ ...prev, supplierPartCode: e.target.value }))}
+                          placeholder="Enter supplier part code"
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="wholesalePrice">Wholesale Price</Label>
+                        <Input
+                          id="wholesalePrice"
+                          type="number"
+                          step="0.01"
+                          value={formData.wholesalePrice}
+                          onChange={(e) => setFormData(prev => ({ ...prev, wholesalePrice: e.target.value }))}
+                          placeholder="Enter wholesale price"
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="retailPrice">Retail Price</Label>
+                        <Input
+                          id="retailPrice"
+                          type="number"
+                          step="0.01"
+                          value={formData.retailPrice}
+                          onChange={(e) => setFormData(prev => ({ ...prev, retailPrice: e.target.value }))}
+                          placeholder="Enter retail price"
                         />
                       </div>
                     </div>
@@ -1191,6 +1260,9 @@ export default function PartApplicationPage() {
                         <p><strong>Email:</strong> {app.requesterEmail || 'N/A'}</p>
                         <p><strong>Supplier:</strong> {app.supplier}</p>
                         <p><strong>Supplier SAP Code:</strong> {app.supplierSapCode || 'N/A'}</p>
+                        <p><strong>Supplier Part Code:</strong> {app.supplierPartCode || 'N/A'}</p>
+                        <p><strong>Wholesale Price:</strong> {app.wholesalePrice ? `$${app.wholesalePrice}` : 'N/A'}</p>
+                        <p><strong>Retail Price:</strong> {app.retailPrice ? `$${app.retailPrice}` : 'N/A'}</p>
                         <p><strong>Standard Price:</strong> {app.standardPrice ? `$${app.standardPrice}` : (app.isPrototypePricePending ? 'Prototype price pending' : 'N/A')}</p>
                         {app.isPrototypePricePending && <p><strong>Estimated Price:</strong> {app.estimatedPrice ? `$${app.estimatedPrice}` : 'N/A'}</p>}
                         <p><strong>Part Name:</strong> {app.partName || 'N/A'}</p>
@@ -1275,6 +1347,9 @@ export default function PartApplicationPage() {
                                   <div><strong>Department:</strong> {app.department}</div>
                                   <div><strong>Priority:</strong> {app.priority}</div>
                                   <div><strong>Supplier:</strong> {app.supplier}</div>
+                                  <div><strong>Supplier Part Code:</strong> {app.supplierPartCode || 'N/A'}</div>
+                                  <div><strong>Wholesale Price:</strong> {app.wholesalePrice ? `$${app.wholesalePrice}` : 'N/A'}</div>
+                                  <div><strong>Retail Price:</strong> {app.retailPrice ? `$${app.retailPrice}` : 'N/A'}</div>
                                   <div><strong>Standard Price:</strong> {app.standardPrice ? `$${app.standardPrice}` : (app.isPrototypePricePending ? 'Prototype price pending' : 'N/A')}</div>
                                   {app.isPrototypePricePending && <div><strong>Estimated Price:</strong> {app.estimatedPrice ? `$${app.estimatedPrice}` : 'N/A'}</div>}
                                   <div><strong>Part Name:</strong> {app.partName || 'N/A'}</div>

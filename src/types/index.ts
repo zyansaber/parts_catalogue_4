@@ -56,6 +56,9 @@ export interface PartApplication {
   ticket_id: string;
   supplier_name: string;
   supplier_sap_code?: string;
+  supplier_part_code?: string;
+  wholesale_price?: string;
+  retail_price?: string;
   part_name?: string;
   price_effective_date?: string;
   leading_time?: string;

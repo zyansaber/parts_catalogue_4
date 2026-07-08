@@ -6,6 +6,9 @@ export interface ApplicationEmailPayload {
   applicationId: string;
   supplier: string;
   supplierSapCode: string;
+  supplierPartCode?: string;
+  wholesalePrice?: string;
+  retailPrice?: string;
   standardPrice: string;
   isPrototypePricePending?: boolean;
   estimatedPrice?: string;
@@ -87,6 +90,9 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
               ${detailRow('Requester Email / 申请人邮箱', payload.requesterEmail)}
               ${detailRow('Supplier / 供应商', payload.supplier)}
               ${detailRow('Supplier SAP Code / 供应商SAP编码', payload.supplierSapCode)}
+              ${detailRow('Supplier Part Code / 供应商零件编码', payload.supplierPartCode)}
+              ${detailRow('Wholesale Price / 批发价', payload.wholesalePrice)}
+              ${detailRow('Retail Price / 零售价', payload.retailPrice)}
               ${detailRow('Part Name / 零件名称', payload.partName)}
               ${detailRow('Part Code / 零件编码', payload.partCode || 'Pending')}
               ${detailRow('Standard Price / 标准价格', payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : 'N/A'))}
@@ -144,6 +150,9 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
     `Requester Email: ${payload.requesterEmail || 'N/A'}`,
     `Supplier: ${payload.supplier || 'N/A'}`,
     `Supplier SAP Code: ${payload.supplierSapCode || 'N/A'}`,
+    `Supplier Part Code: ${payload.supplierPartCode || 'N/A'}`,
+    `Wholesale Price: ${payload.wholesalePrice || 'N/A'}`,
+    `Retail Price: ${payload.retailPrice || 'N/A'}`,
     `Part Name: ${payload.partName || 'N/A'}`,
     `Part Code: ${payload.partCode || 'Pending'}`,
     `Standard Price: ${payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : 'N/A')}`,
@@ -194,6 +203,9 @@ export class EmailService {
           application_id: payload.applicationId,
           supplier: payload.supplier,
           supplier_sap_code: payload.supplierSapCode,
+          supplier_part_code: payload.supplierPartCode || 'N/A',
+          wholesale_price: payload.wholesalePrice || 'N/A',
+          retail_price: payload.retailPrice || 'N/A',
           standard_price: payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : 'N/A'),
           is_prototype_price_pending: payload.isPrototypePricePending ? 'Yes' : 'No',
           estimated_price: payload.estimatedPrice || 'N/A',
