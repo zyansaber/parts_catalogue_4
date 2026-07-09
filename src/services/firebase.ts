@@ -472,7 +472,22 @@ export class FirebaseService {
         department: application.department || '',
         priority: application.priority || 'medium',
         specifications: application.specifications || '',
-        supplier: application.supplier,
+        purchasingOrganization: application.purchasingOrganization || '',
+        priceBreaks: application.priceBreaks || [],
+        previousPriceBreaks: application.previousPriceBreaks || [],
+        partCode: application.partCode || '',
+        applicationType: application.applicationType || 'single',
+        isSalesItem: Boolean(application.isSalesItem),
+        vanCodeType: application.vanCodeType || '',
+        originalSupplier: application.originalSupplier || '',
+        originalSupplierSapCode: application.originalSupplierSapCode || '',
+        originalSupplierPartCode: application.originalSupplierPartCode || '',
+        originalWholesalePrice: application.originalWholesalePrice || '',
+        originalRetailPrice: application.originalRetailPrice || '',
+        originalPrice: application.originalPrice || '',
+        newSupplier: application.newSupplier || '',
+        newPrice: application.newPrice || '',
+        supplier: application.supplier || application.newSupplier || '',
         supplierSapCode: application.supplierSapCode,
         supplierPartCode: application.supplierPartCode || '',
         wholesalePrice: application.wholesalePrice || '',
@@ -492,7 +507,9 @@ export class FirebaseService {
         status: application.status,
         imageUrl: application.imageUrl || '',
         applicationFileUrl: application.applicationFileUrl || '',
-        applicationFileName: application.applicationFileName || ''
+        applicationFileName: application.applicationFileName || '',
+        managerApprovalFileUrl: application.managerApprovalFileUrl || '',
+        managerApprovalFileName: application.managerApprovalFileName || ''
       });
     } catch (error) {
       console.error('Error saving application:', error);
