@@ -1,5 +1,12 @@
 export interface ApplicationEmailPayload {
   emailType: 'submitted' | 'part_code_completed' | 'rejected' | 'price_pending_reminder';
+  applicationType?: 'single' | 'van_code' | 'price_supplier_change';
+  isSalesItem?: boolean;
+  vanCodeType?: string;
+  originalSupplier?: string;
+  originalPrice?: string;
+  newSupplier?: string;
+  newPrice?: string;
   toEmail: string;
   requesterName: string;
   requesterEmail: string;
@@ -22,6 +29,7 @@ export interface ApplicationEmailPayload {
   notes?: string;
   partCode?: string;
   applicationFileUrl?: string;
+  managerApprovalFileUrl?: string;
   imageUrl?: string;
   rejectionReason?: string;
   submittedAt?: string;
@@ -88,6 +96,8 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
               ${detailRow('Application ID / 申请编号', payload.applicationId)}
               ${detailRow('Requester / 申请人', payload.requesterName)}
               ${detailRow('Requester Email / 申请人邮箱', payload.requesterEmail)}
+              ${detailRow('Application Type / 申请类型', payload.applicationType === 'van_code' ? `Van Code - ${payload.vanCodeType || 'N/A'}` : payload.applicationType === 'price_supplier_change' ? 'Price/Supplier Change' : 'Single Application')}
+              ${detailRow('Sales Item / 销售物品', payload.isSalesItem ? 'Yes' : 'No')}
               ${detailRow('Supplier / 供应商', payload.supplier)}
               ${detailRow('Supplier SAP Code / 供应商SAP编码', payload.supplierSapCode)}
               ${detailRow('Supplier Part Code / 供应商零件编码', payload.supplierPartCode)}
@@ -95,6 +105,7 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
               ${detailRow('Retail Price / 零售价', payload.retailPrice)}
               ${detailRow('Part Name / 零件名称', payload.partName)}
               ${detailRow('Part Code / 零件编码', payload.partCode || 'Pending')}
+              ${payload.applicationType === 'price_supplier_change' ? `${detailRow('Original Supplier / 原供应商', payload.originalSupplier)}${detailRow('Original Price / 原价格', payload.originalPrice)}${detailRow('New Supplier / 新供应商', payload.newSupplier)}${detailRow('New Price / 新价格', payload.newPrice)}` : ''}
               ${detailRow('Standard Price / 标准价格', payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : 'N/A'))}
               ${payload.isPrototypePricePending ? detailRow('Estimated Price / 预估价格', payload.estimatedPrice || 'N/A') : ''}
               ${detailRow('Price Pending / 价格待维护', payload.isPrototypePricePending ? 'Yes' : 'No')}
@@ -123,6 +134,7 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
 
           <div style="margin-top:22px; display:flex; gap:12px; flex-wrap:wrap;">
             ${payload.applicationFileUrl ? `<a href="${escapeHtml(payload.applicationFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#2563eb; color:#ffffff; text-decoration:none; font-weight:700;">Open Application File</a>` : ''}
+            ${payload.managerApprovalFileUrl ? `<a href="${escapeHtml(payload.managerApprovalFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#7c3aed; color:#ffffff; text-decoration:none; font-weight:700;">Open Manager Approval</a>` : ''}
             ${payload.imageUrl ? `<a href="${escapeHtml(payload.imageUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700;">Open Part Image</a>` : ''}
           </div>
         </div>
@@ -148,6 +160,9 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
     `Status: ${payload.emailType}`,
     `Requester: ${payload.requesterName}`,
     `Requester Email: ${payload.requesterEmail || 'N/A'}`,
+    `Application Type: ${payload.applicationType || 'single'}`,
+    `Sales Item: ${payload.isSalesItem ? 'Yes' : 'No'}`,
+    `Van Code Type: ${payload.vanCodeType || 'N/A'}`,
     `Supplier: ${payload.supplier || 'N/A'}`,
     `Supplier SAP Code: ${payload.supplierSapCode || 'N/A'}`,
     `Supplier Part Code: ${payload.supplierPartCode || 'N/A'}`,
@@ -155,6 +170,10 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
     `Retail Price: ${payload.retailPrice || 'N/A'}`,
     `Part Name: ${payload.partName || 'N/A'}`,
     `Part Code: ${payload.partCode || 'Pending'}`,
+    `Original Supplier: ${payload.originalSupplier || 'N/A'}`,
+    `Original Price: ${payload.originalPrice || 'N/A'}`,
+    `New Supplier: ${payload.newSupplier || 'N/A'}`,
+    `New Price: ${payload.newPrice || 'N/A'}`,
     `Standard Price: ${payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : 'N/A')}`,
     `Price Pending: ${payload.isPrototypePricePending ? 'Yes' : 'No'}`,
     `Estimated Price: ${payload.estimatedPrice || 'N/A'}`,
@@ -167,6 +186,7 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
     `Notes: ${payload.notes || 'N/A'}`,
     `Rejection Reason: ${payload.rejectionReason || 'N/A'}`,
     `Application File: ${payload.applicationFileUrl || 'N/A'}`,
+    `Manager Approval: ${payload.managerApprovalFileUrl || 'N/A'}`,
     `Image URL: ${payload.imageUrl || 'N/A'}`,
     `Submitted At: ${payload.submittedAt || new Date().toISOString()}`,
   ];
@@ -201,6 +221,13 @@ export class EmailService {
           requester_name: payload.requesterName,
           requester_email: payload.requesterEmail,
           application_id: payload.applicationId,
+          application_type: payload.applicationType || 'single',
+          is_sales_item: payload.isSalesItem ? 'Yes' : 'No',
+          van_code_type: payload.vanCodeType || 'N/A',
+          original_supplier: payload.originalSupplier || 'N/A',
+          original_price: payload.originalPrice || 'N/A',
+          new_supplier: payload.newSupplier || 'N/A',
+          new_price: payload.newPrice || 'N/A',
           supplier: payload.supplier,
           supplier_sap_code: payload.supplierSapCode,
           supplier_part_code: payload.supplierPartCode || 'N/A',
@@ -219,6 +246,7 @@ export class EmailService {
           notes: payload.notes || 'N/A',
           part_code: payload.partCode || 'Pending',
           application_file_url: payload.applicationFileUrl || 'N/A',
+          manager_approval_file_url: payload.managerApprovalFileUrl || 'N/A',
           image_url: payload.imageUrl || 'N/A',
           rejection_reason: payload.rejectionReason || 'N/A',
           submitted_at: payload.submittedAt || new Date().toISOString(),
