@@ -523,7 +523,7 @@ export default function PartApplicationPage() {
             estimatedPrice: row.estimatedPrice,
             standardPrice: '',
             isPrototypePricePending: true,
-            specifications: `${row.vanCodeType === 'finished_goods' ? 'Finished Goods' : 'Semivan'} van code application`,
+            specifications: `${row.vanCodeType === 'finished_goods' ? 'Finished Goods' : row.vanCodeType === 'semivan' ? 'Semivan' : 'Unspecified'} van code application`,
             supplier: '',
             supplierSapCode: '',
             supplierPartCode: '',
@@ -739,8 +739,13 @@ export default function PartApplicationPage() {
     .replace(/'/g, '&#39;');
 
   const printApplicationForm = (application: Partial<PartApplication> & { vanCodeItems?: VanCodeApplicationRow[] }) => {
+    const vanCodeTypeLabel = application.vanCodeType === 'finished_goods'
+      ? 'Finished Goods'
+      : application.vanCodeType === 'semivan'
+        ? 'Semivan'
+        : 'Multiple Items';
     const applicationType = application.applicationType === 'van_code'
-      ? `Van Code Application - ${application.vanCodeType === 'finished_goods' ? 'Finished Goods' : 'Semivan'}`
+      ? `Van Code Application - ${vanCodeTypeLabel}`
       : application.applicationType === 'price_supplier_change'
         ? 'Price/Supplier Change'
         : 'Single Part Application';
@@ -897,7 +902,9 @@ export default function PartApplicationPage() {
         priceBreaks: [],
         previousPriceBreaks: [],
         isPrototypePricePending: true,
-        specifications: `${row.vanCodeType === 'finished_goods' ? 'Finished Goods' : 'Semivan'} van code application`,
+        specifications: row
+          ? `${targetRow.vanCodeType === 'finished_goods' ? 'Finished Goods' : targetRow.vanCodeType === 'semivan' ? 'Semivan' : 'Unspecified'} van code application`
+          : 'Multiple van code item application',
       });
       return;
     }
