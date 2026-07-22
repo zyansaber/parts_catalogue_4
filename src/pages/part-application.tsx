@@ -14,6 +14,7 @@ import { TranslationService } from '@/services/translation';
 import { PDFService } from '@/services/pdf';
 import { FirebaseService } from '@/services/firebase';
 import { EmailService } from '@/services/email';
+import { Part } from '@/types';
 
 interface PartApplication {
   id: string;
@@ -62,9 +63,15 @@ interface PartApplication {
   originalPrice?: string;
   newSupplier?: string;
   newPrice?: string;
+  minimumOrderQuantity?: string;
+  changeField?: PriceSupplierChangeField;
+  changeFields?: PriceSupplierChangeField[];
+  priceChangeDirection?: 'increase' | 'decrease' | '';
   rejectionReason?: string;
   rejectedAt?: string;
 }
+
+type PriceSupplierChangeField = '' | 'purchasingChange' | 'retailPrice' | 'wholesalePrice';
 
 interface PriceBreakRow {
   id: string;
@@ -126,6 +133,9 @@ export default function PartApplicationPage() {
   const [submissionMode, setSubmissionMode] = useState<'single' | 'van_code' | 'price_supplier_change'>('single');
   const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'pending' | 'approved' | 'prototype_price_pending' | 'price_supplier_change'>('pending');
   const [prototypePassword, setPrototypePassword] = useState('');
+  const [foundPart, setFoundPart] = useState<Part | null>(null);
+  const [isLookingUpPart, setIsLookingUpPart] = useState(false);
+  const [partLookupStatus, setPartLookupStatus] = useState('');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -147,6 +157,10 @@ export default function PartApplicationPage() {
     originalPrice: '',
     newSupplier: '',
     newPrice: '',
+    minimumOrderQuantity: '',
+    changeField: '' as PriceSupplierChangeField,
+    changeFields: [] as PriceSupplierChangeField[],
+    priceChangeDirection: '' as 'increase' | 'decrease' | '',
     supplier: '',
     supplierSapCode: '',
     supplierPartCode: '',
@@ -223,6 +237,10 @@ export default function PartApplicationPage() {
       originalPrice: '',
       newSupplier: '',
       newPrice: '',
+      minimumOrderQuantity: '',
+      changeField: '' as PriceSupplierChangeField,
+      changeFields: [] as PriceSupplierChangeField[],
+      priceChangeDirection: '' as 'increase' | 'decrease' | '',
       supplier: '',
       supplierSapCode: '',
       supplierPartCode: '',
@@ -248,6 +266,8 @@ export default function PartApplicationPage() {
     setManagerApprovalFile(null);
     setSubmissionMode('single');
     setPrototypePassword('');
+    setFoundPart(null);
+    setPartLookupStatus('');
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -432,6 +452,98 @@ export default function PartApplicationPage() {
     });
   };
 
+
+
+  const lookupPartForChange = async (partCodeValue: string) => {
+    const code = partCodeValue.trim();
+    if (!code) {
+      setFoundPart(null);
+      setPartLookupStatus('');
+      return;
+    }
+
+    setIsLookingUpPart(true);
+    try {
+      const directPart = await FirebaseService.getPartByMaterial(code);
+      let part = directPart;
+
+      if (!part) {
+        const searchResults = await FirebaseService.searchParts(code, 20);
+        const matchedEntry = Object.entries(searchResults).find(([material, item]) => material.toLowerCase() === code.toLowerCase() || item.Material?.toLowerCase() === code.toLowerCase())
+          || Object.entries(searchResults)[0];
+        part = matchedEntry?.[1] || null;
+      }
+
+      setFoundPart(part);
+      if (part) {
+        setPartLookupStatus('Part found in catalogue. Current details are shown below.');
+        setFormData(prev => ({
+          ...prev,
+          partName: part.SPRAS_EN || prev.partName,
+          originalSupplier: part.Supplier_Name || prev.originalSupplier,
+          originalPrice: part.Standard_Price !== undefined ? String(part.Standard_Price) : prev.originalPrice,
+          originalRetailPrice: part.Customer_Price !== undefined ? String(part.Customer_Price) : prev.originalRetailPrice,
+          originalWholesalePrice: part.Dealer_Price !== undefined ? String(part.Dealer_Price) : prev.originalWholesalePrice,
+          unit: prev.unit,
+        }));
+      } else {
+        setPartLookupStatus('Part not found in catalogue. Please fill Previous Price manually for Standard Price changes.');
+      }
+    } catch (error) {
+      console.error('Part lookup failed:', error);
+      setFoundPart(null);
+      setPartLookupStatus('Part lookup failed. Please try again or enter previous values manually.');
+    } finally {
+      setIsLookingUpPart(false);
+    }
+  };
+
+  useEffect(() => {
+    if (submissionMode !== 'price_supplier_change') return;
+    const code = formData.partCode.trim();
+    if (!code) {
+      setFoundPart(null);
+      setPartLookupStatus('');
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      lookupPartForChange(code);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [formData.partCode, submissionMode]);
+
+  const activeChangeFields = () => formData.changeFields.length ? formData.changeFields : (formData.changeField ? [formData.changeField] : []);
+
+  const addChangeContent = () => {
+    if (!formData.changeField || formData.changeFields.includes(formData.changeField)) return;
+    setFormData(prev => ({ ...prev, changeFields: [...prev.changeFields, prev.changeField], changeField: '' as PriceSupplierChangeField }));
+  };
+
+  const removeChangeContent = (field: PriceSupplierChangeField) => {
+    setFormData(prev => ({ ...prev, changeFields: prev.changeFields.filter((item) => item !== field) }));
+  };
+
+  const hasChangeContent = (field: PriceSupplierChangeField) => activeChangeFields().includes(field);
+
+  const standardPriceComparison = () => {
+    const newPrice = Number(formData.standardPrice);
+    const previousPrice = Number(foundPart?.Standard_Price ?? formData.originalPrice);
+    if (!Number.isFinite(newPrice) || !Number.isFinite(previousPrice) || !formData.standardPrice || (!foundPart && !formData.originalPrice)) return '';
+    if (newPrice > previousPrice) return 'increase';
+    if (newPrice < previousPrice) return 'decrease';
+    return 'decrease';
+  };
+
+  const requiresManagerApproval = () => {
+    if (submissionMode !== 'price_supplier_change') return true;
+    const fields = activeChangeFields();
+    if (fields.some((field) => ['retailPrice', 'wholesalePrice'].includes(field))) return true;
+    if (fields.includes('purchasingChange') && formData.supplier) return true;
+    if (fields.includes('purchasingChange') && formData.standardPrice) return formData.priceChangeDirection === 'increase';
+    if (fields.includes('purchasingChange') && cleanPriceBreakRows(priceBreakRows).length > 0) return formData.priceChangeDirection === 'increase';
+    return false;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const isManualRequester = formData.requesterId === 'manual';
@@ -464,12 +576,12 @@ export default function PartApplicationPage() {
       return;
     }
 
-    if (submissionMode === 'single' && (!formData.supplier || !formData.supplierSapCode || (!formData.standardPrice && !formData.isPrototypePricePending) || !formData.partName || !formData.priceEffectiveDate || !formData.leadingTime || !formData.unit || !formData.specifications || (formData.isPack && !formData.packQuantity) || (formData.isSalesItem && (!formData.wholesalePrice || !formData.retailPrice)) || !selectedFile)) {
-      showMessage('error', 'Please fill in all required fields and upload a part image. Wholesale Price and Retail Price are required for sales items.');
+    if (submissionMode === 'single' && (!formData.minimumOrderQuantity || !formData.supplier || !formData.supplierSapCode || (!formData.standardPrice && !formData.isPrototypePricePending) || !formData.partName || !formData.priceEffectiveDate || !formData.leadingTime || !formData.unit || !formData.specifications || (formData.isPack && !formData.packQuantity) || (formData.isSalesItem && (!formData.wholesalePrice || !formData.retailPrice)) || !selectedFile)) {
+      showMessage('error', 'Please fill in all required fields and upload a part image. Minimum Order Quantity is required. Wholesale Price and Retail Price are required for sales items.');
       return;
     }
 
-    if (!managerApprovalFile) {
+    if (requiresManagerApproval() && !managerApprovalFile) {
       showMessage('error', 'Please upload the signed Manager Approval file');
       return;
     }
@@ -479,24 +591,20 @@ export default function PartApplicationPage() {
       return;
     }
 
-    if (submissionMode === 'price_supplier_change' && (!formData.partCode || !formData.partName)) {
-      showMessage('error', 'Please fill Parts Code and Part Name for Price/Supplier Change');
-      return;
-    }
-
     if (submissionMode === 'price_supplier_change') {
-      const missingPreviousFields = [
-        formData.supplier && !formData.originalSupplier ? 'Previous Supplier' : '',
-        formData.supplierSapCode && !formData.originalSupplierSapCode ? 'Previous Supplier SAP Code' : '',
-        formData.supplierPartCode && !formData.originalSupplierPartCode ? 'Previous Supplier Part Code' : '',
-        formData.wholesalePrice && !formData.originalWholesalePrice ? 'Previous Wholesale Price' : '',
-        formData.retailPrice && !formData.originalRetailPrice ? 'Previous Retail Price' : '',
-        formData.standardPrice && !formData.originalPrice ? 'Previous Standard Price' : '',
-        priceBreaks.length > 0 && previousPriceBreaks.length === 0 ? 'Previous Price Breaks' : '',
+      const selectedChangeFields = activeChangeFields();
+      if (!formData.partCode || selectedChangeFields.length === 0) {
+        showMessage('error', 'Please fill Part Code and select the content to change');
+        return;
+      }
+      const missingChangeFields = [
+        selectedChangeFields.includes('retailPrice') && !formData.retailPrice ? 'Retail Price' : '',
+        selectedChangeFields.includes('wholesalePrice') && !formData.wholesalePrice ? 'Wholesale Price' : '',
+        selectedChangeFields.includes('purchasingChange') && !(formData.supplier || formData.supplierSapCode || formData.standardPrice || formData.priceEffectiveDate || formData.leadingTime || formData.minimumOrderQuantity || priceBreaks.length > 0 || formData.unit) ? 'At least one Purchasing Change field' : '',
+        selectedChangeFields.includes('purchasingChange') && (formData.standardPrice || priceBreaks.length > 0) && !formData.priceChangeDirection ? 'Purchasing price/price breaks increase or decrease direction' : '',
       ].filter(Boolean);
-
-      if (missingPreviousFields.length > 0) {
-        showMessage('error', `Please fill previous value(s) for changed data: ${missingPreviousFields.join(', ')}`);
+      if (missingChangeFields.length > 0) {
+        showMessage('error', `Please fill required change field(s): ${missingChangeFields.join(', ')}`);
         return;
       }
     }
@@ -587,7 +695,7 @@ export default function PartApplicationPage() {
 
       const applicationId = generateApplicationId();
       const imageUrl = selectedFile ? await FirebaseService.uploadPartApplicationImage(selectedFile, applicationId) : '';
-      const managerApprovalFileUrl = await FirebaseService.uploadApplicationAttachment(managerApprovalFile, `MANAGER-${applicationId}-${Date.now()}`);
+      const managerApprovalFileUrl = managerApprovalFile ? await FirebaseService.uploadApplicationAttachment(managerApprovalFile, `MANAGER-${applicationId}-${Date.now()}`) : '';
 
       const newApplication: PartApplication = {
         ...formData,
@@ -611,7 +719,7 @@ export default function PartApplicationPage() {
         applicationFileUrl: '',
         applicationFileName: '',
         managerApprovalFileUrl,
-        managerApprovalFileName: managerApprovalFile.name
+        managerApprovalFileName: managerApprovalFile?.name || ''
       };
 
       await FirebaseService.savePartApplication(newApplication);
@@ -718,6 +826,36 @@ export default function PartApplicationPage() {
   const cleanPriceBreakRows = (rows: PriceBreakRow[]) => rows
     .filter((row) => row.quantityOver.trim() || row.netPriceAud.trim())
     .map((row) => ({ id: row.id, quantityOver: row.quantityOver.trim(), netPriceAud: row.netPriceAud.trim() }));
+
+  const handleSubmissionModeChange = (mode: 'single' | 'van_code' | 'price_supplier_change') => {
+    setSubmissionMode(mode);
+    if (mode === 'price_supplier_change') {
+      setSelectedFile(null);
+      setImagePreview(null);
+      setPrototypePassword('');
+      setFormData(prev => ({
+        ...prev,
+        isSalesItem: false,
+        isPrototypePricePending: false,
+        estimatedPrice: '',
+        specifications: '',
+        notes: '',
+        minimumOrderQuantity: '',
+        supplier: '',
+        supplierSapCode: '',
+        supplierPartCode: '',
+        wholesalePrice: '',
+        retailPrice: '',
+        standardPrice: '',
+        leadingTime: '',
+        unit: '',
+        isPack: false,
+        packQuantity: '',
+      }));
+      setPriceBreakRows([{ id: crypto.randomUUID(), quantityOver: '', netPriceAud: '' }]);
+      setPreviousPriceBreakRows([{ id: crypto.randomUUID(), quantityOver: '', netPriceAud: '' }]);
+    }
+  };
 
   const updateVanCodeRow = (rowId: string, field: keyof Omit<VanCodeApplicationRow, 'id'>, value: string) => {
     setVanCodeRows((prev) => prev.map((row) => row.id === rowId ? { ...row, [field]: value } : row));
@@ -883,6 +1021,59 @@ export default function PartApplicationPage() {
 </body>
 </html>`);
     printWindow.document.close();
+  };
+
+
+  const getChangeFieldLabel = (field: PriceSupplierChangeField) => ({
+    purchasingChange: 'Purchasing Change',
+    retailPrice: 'Retail Price',
+    wholesalePrice: 'Wholesale Price',
+    '': 'N/A',
+  }[field]);
+
+  const printPriceSupplierChangeForm = () => {
+    const changedRows = [
+      ['Part Code', formData.partCode],
+      ['Change Content', activeChangeFields().map(getChangeFieldLabel).join(', ')],
+      ['Requester', formData.requestedBy],
+      ['Requester Email', formData.requesterEmail],
+      ['Purchasing Organization', formData.purchasingOrganization],
+      ['Current Part Name', foundPart?.SPRAS_EN || 'Not found / manual'],
+      ['Current Supplier', foundPart?.Supplier_Name || formData.originalSupplier || 'N/A'],
+      ['Current Standard Price', foundPart?.Standard_Price ?? (formData.originalPrice || 'N/A')],
+    ];
+
+    const changeRows = [
+      hasChangeContent('purchasingChange') ? ['New Part Name', formData.partName] : null,
+      hasChangeContent('purchasingChange') ? ['New Supplier', formData.supplier] : null,
+      hasChangeContent('purchasingChange') ? ['New Supplier Code', formData.supplierSapCode] : null,
+      hasChangeContent('purchasingChange') ? ['Purchasing Price', formData.standardPrice] : null,
+      hasChangeContent('purchasingChange') && !foundPart ? ['Previous Price', formData.originalPrice] : null,
+      hasChangeContent('purchasingChange') ? ['Direction', standardPriceComparison() || 'N/A'] : null,
+      hasChangeContent('purchasingChange') && (formData.standardPrice || cleanPriceBreakRows(priceBreakRows).length > 0) && formData.priceChangeDirection ? ['Price Break Direction', formData.priceChangeDirection] : null,
+      hasChangeContent('retailPrice') ? ['New Retail Price', formData.retailPrice] : null,
+      hasChangeContent('wholesalePrice') ? ['New Wholesale Price', formData.wholesalePrice] : null,
+      hasChangeContent('purchasingChange') ? ['New Leading Time', formData.leadingTime] : null,
+      hasChangeContent('purchasingChange') ? ['New Minimum Order Quantity', formData.minimumOrderQuantity] : null,
+      hasChangeContent('purchasingChange') ? ['New Unit', formData.unit] : null,
+      hasChangeContent('purchasingChange') ? ['Is Pack', formData.isPack ? 'Yes' : 'No'] : null,
+      hasChangeContent('purchasingChange') && formData.isPack ? ['Pack Quantity', formData.packQuantity] : null,
+    ].filter(Boolean) as string[][];
+
+    const rowsHtml = [...changedRows, ...changeRows]
+      .filter(([, value]) => value !== undefined && value !== null && String(value).trim() && String(value).trim() !== 'N/A')
+      .map(([label, value]) => `<tr><th>${escapePrintHtml(label)}</th><td>${escapePrintHtml(value)}</td></tr>`)
+      .join('');
+    const priceBreakRowsHtml = hasChangeContent('purchasingChange') && cleanPriceBreakRows(priceBreakRows).length > 0
+      ? `<h2>Price Breaks</h2><table><thead><tr><th>Quantity Over</th><th>Net Price AUD</th></tr></thead><tbody>${cleanPriceBreakRows(priceBreakRows).map((row) => `<tr><td>${escapePrintHtml(row.quantityOver)}</td><td>${escapePrintHtml(row.netPriceAud)}</td></tr>`).join('')}</tbody></table>`
+      : '';
+
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) return;
+    printWindow.document.write(`<!doctype html><html><head><title>Price/Supplier Change Approval</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111827}h1{font-size:22px;margin-bottom:4px}.meta{color:#6b7280;margin-bottom:18px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #d1d5db;padding:8px;text-align:left;vertical-align:top}th{width:32%;background:#f3f4f6}.signature{margin-top:48px;display:grid;grid-template-columns:1fr 1fr;gap:24px}.line{border-top:1px solid #111827;padding-top:8px}</style></head><body><h1>Price/Supplier Change Approval</h1><div class="meta">Printed: ${escapePrintHtml(new Date().toLocaleString())}</div><table><tbody>${rowsHtml}</tbody></table>${priceBreakRowsHtml}<div class="signature"><div class="line">Manager Signature</div><div class="line">Date</div></div></body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 250);
   };
 
   const printCurrentApplicationForm = (row?: VanCodeApplicationRow) => {
@@ -1162,21 +1353,21 @@ export default function PartApplicationPage() {
                   <Button
                     type="button"
                     variant={submissionMode === 'single' ? 'default' : 'outline'}
-                    onClick={() => setSubmissionMode('single')}
+                    onClick={() => handleSubmissionModeChange('single')}
                   >
                     Single Application
                   </Button>
                   <Button
                     type="button"
                     variant={submissionMode === 'van_code' ? 'default' : 'outline'}
-                    onClick={() => setSubmissionMode('van_code')}
+                    onClick={() => handleSubmissionModeChange('van_code')}
                   >
                     Van Code Application
                   </Button>
                   <Button
                     type="button"
                     variant={submissionMode === 'price_supplier_change' ? 'default' : 'outline'}
-                    onClick={() => setSubmissionMode('price_supplier_change')}
+                    onClick={() => handleSubmissionModeChange('price_supplier_change')}
                   >
                     Price/Supplier Change
                   </Button>
@@ -1250,19 +1441,72 @@ export default function PartApplicationPage() {
                 {submissionMode !== 'van_code' ? (
                   <>
                     {submissionMode === 'price_supplier_change' && (
-                      <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
-                        <Label htmlFor="changePartCode">Parts Code *</Label>
-                        <Input id="changePartCode" value={formData.partCode} onChange={(e) => setFormData(prev => ({ ...prev, partCode: e.target.value }))} required={submissionMode === 'price_supplier_change'} />
-                        <p className="mt-2 text-xs text-purple-700">Fill only the fields that are changing. When you enter a new value, the matching previous value becomes required.</p>
+                      <div className="space-y-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
+                        <div>
+                          <Label htmlFor="changePartCode">Part Code *</Label>
+                          <Input id="changePartCode" value={formData.partCode} onChange={(e) => setFormData(prev => ({ ...prev, partCode: e.target.value }))} required />
+                        </div>
+                        {(isLookingUpPart || partLookupStatus) && <p className="text-xs text-purple-700">{isLookingUpPart ? 'Searching part catalogue...' : partLookupStatus}</p>}
+                        {foundPart && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-lg border bg-white p-3 text-sm">
+                            <div><strong>Part Name:</strong> {foundPart.SPRAS_EN || 'N/A'}</div>
+                            <div><strong>Standard Price:</strong> {foundPart.Standard_Price ?? 'N/A'}</div>
+                          </div>
+                        )}
+                        <div>
+                          <Label>Change Content *</Label>
+                          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                            <Select value={formData.changeField} onValueChange={(value: PriceSupplierChangeField) => setFormData(prev => ({ ...prev, changeField: value }))}>
+                              <SelectTrigger><SelectValue placeholder="Select content to change" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="purchasingChange">Purchasing Change</SelectItem><SelectItem value="wholesalePrice">Wholesale Price</SelectItem><SelectItem value="retailPrice">Retail Price</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Button type="button" variant="outline" onClick={addChangeContent} disabled={!formData.changeField || formData.changeFields.includes(formData.changeField)}>Add Change</Button>
+                          </div>
+                          {formData.changeFields.length > 0 && <div className="flex flex-wrap gap-2 mt-3">{formData.changeFields.map((field) => <Badge key={field} variant="secondary" className="gap-2">{getChangeFieldLabel(field)}<button type="button" onClick={() => removeChangeContent(field)} className="text-xs">×</button></Badge>)}</div>}
+                        </div>
+                        {hasChangeContent('purchasingChange') && (
+                          <div className="space-y-4 rounded-lg border bg-white p-3">
+                            <div className="rounded-lg border p-3 space-y-3">
+                              <h3 className="text-sm font-semibold text-gray-800">Supplier</h3>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div><Label htmlFor="supplier">Preferred Supplier</Label><Input id="supplier" value={formData.supplier} onChange={(e) => setFormData(prev => ({ ...prev, supplier: e.target.value }))} placeholder="Enter supplier name" /></div>
+                                <div><Label htmlFor="supplierSapCode">Preferred Supplier SAP Code</Label><Input id="supplierSapCode" value={formData.supplierSapCode} onChange={(e) => setFormData(prev => ({ ...prev, supplierSapCode: e.target.value }))} placeholder="Enter supplier SAP code" /></div>
+                              </div>
+                            </div>
+                            <div className="rounded-lg border p-3 space-y-3">
+                              <h3 className="text-sm font-semibold text-gray-800">Price</h3>
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div><Label htmlFor="standardPrice">Purchasing Price</Label><Input id="standardPrice" type="number" step="0.01" value={formData.standardPrice} onChange={(e) => setFormData(prev => ({ ...prev, standardPrice: e.target.value }))} placeholder="Enter purchasing price" /></div>
+                                <div><Label htmlFor="priceEffectiveDate">Price Effective Date</Label><Input id="priceEffectiveDate" type="date" value={formData.priceEffectiveDate} onChange={(e) => setFormData(prev => ({ ...prev, priceEffectiveDate: e.target.value }))} /></div>
+                                <div><Label>Price Change Direction</Label><Select value={formData.priceChangeDirection} onValueChange={(value: 'increase' | 'decrease') => setFormData(prev => ({ ...prev, priceChangeDirection: value }))}><SelectTrigger><SelectValue placeholder="Increase or decrease" /></SelectTrigger><SelectContent><SelectItem value="increase">Increase</SelectItem><SelectItem value="decrease">Decrease</SelectItem></SelectContent></Select></div>
+                                <div><Label htmlFor="unit">Unit</Label><Input id="unit" value={formData.unit} onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))} placeholder="EA" /></div>
+                              </div>
+                            </div>
+                            <div className="rounded-lg border p-3 space-y-3">
+                              <h3 className="text-sm font-semibold text-gray-800">Material Purchasing Parameters</h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><Label htmlFor="leadingTime">Leading Time</Label><Input id="leadingTime" value={formData.leadingTime} onChange={(e) => setFormData(prev => ({ ...prev, leadingTime: e.target.value }))} /></div>
+                                <div><Label htmlFor="minimumOrderQuantityChange">Minimum Order Quantity</Label><Input id="minimumOrderQuantityChange" type="number" min="0" step="1" value={formData.minimumOrderQuantity} onChange={(e) => setFormData(prev => ({ ...prev, minimumOrderQuantity: e.target.value }))} placeholder="Enter MOQ" /></div>
+                              </div>
+                            </div>
+                            <div className="space-y-3 rounded-lg border p-3">
+                              <div className="flex items-center justify-between"><div><Label>Price Breaks (if applicable)</Label><p className="text-xs text-gray-500">Enter quantity over and net price in AUD.</p></div><Button type="button" variant="outline" size="sm" onClick={addPriceBreakRow}>Add Row</Button></div>
+                              {priceBreakRows.map((row) => <div key={row.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3"><Input type="number" placeholder="Quantity Over" value={row.quantityOver} onChange={(e) => updatePriceBreakRow(row.id, 'quantityOver', e.target.value)} /><Input type="number" step="0.01" placeholder="Net Price (AUD)" value={row.netPriceAud} onChange={(e) => updatePriceBreakRow(row.id, 'netPriceAud', e.target.value)} /><Button type="button" variant="outline" onClick={() => removePriceBreakRow(row.id)} disabled={priceBreakRows.length === 1}><Trash2 className="h-4 w-4" /></Button></div>)}
+                            </div>
+                          </div>
+                        )}
+                        <p className="text-xs text-purple-700">Signed file is required for Retail Price, Wholesale Price, Supplier changes, and Purchasing Price/Price Break increases.</p>
                       </div>
                     )}
 
-                    <div className="rounded-lg border p-3">
+                    {submissionMode === 'single' && <div className="rounded-lg border p-3">
                       <Label htmlFor="partNameTop">Part Name *</Label>
                       <Input id="partNameTop" value={formData.partName} onChange={(e) => setFormData(prev => ({ ...prev, partName: e.target.value }))} placeholder="Enter part name" required />
-                    </div>
+                    </div>}
 
-                    <label htmlFor="isSalesItem" className="flex items-center gap-2 rounded-lg border p-3 text-sm font-medium">
+                    {submissionMode === 'single' && <label htmlFor="isSalesItem" className="flex items-center gap-2 rounded-lg border p-3 text-sm font-medium">
                       <input
                         id="isSalesItem"
                         type="checkbox"
@@ -1271,8 +1515,9 @@ export default function PartApplicationPage() {
                         className="h-4 w-4 rounded border-gray-300"
                       />
                       Will this item enter sales?
-                    </label>
+                    </label>}
 
+                    {submissionMode === 'single' && <>
                     <div className="rounded-lg border p-3 space-y-3">
                       <h3 className="text-sm font-semibold text-gray-800">Supplier</h3>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1308,7 +1553,9 @@ export default function PartApplicationPage() {
                         </div>
                       </div>
                     </div>
+                    </>}
 
+                    {submissionMode === 'single' && <>
                     <div className="rounded-lg border p-3 space-y-3">
                       <h3 className="text-sm font-semibold text-gray-800">Price</h3>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1339,15 +1586,6 @@ export default function PartApplicationPage() {
                       </div>
                     </div>
 
-                    {submissionMode === 'price_supplier_change' && (formData.supplier || formData.supplierSapCode || formData.supplierPartCode || formData.wholesalePrice || formData.retailPrice) && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border border-purple-200 bg-purple-50 p-3">
-                        {formData.supplier && <div><Label htmlFor="originalSupplier">Previous Supplier *</Label><Input id="originalSupplier" value={formData.originalSupplier} onChange={(e) => setFormData(prev => ({ ...prev, originalSupplier: e.target.value }))} required /></div>}
-                        {formData.supplierSapCode && <div><Label htmlFor="originalSupplierSapCode">Previous Supplier SAP Code *</Label><Input id="originalSupplierSapCode" value={formData.originalSupplierSapCode} onChange={(e) => setFormData(prev => ({ ...prev, originalSupplierSapCode: e.target.value }))} required /></div>}
-                        {formData.supplierPartCode && <div><Label htmlFor="originalSupplierPartCode">Previous Supplier Part Code *</Label><Input id="originalSupplierPartCode" value={formData.originalSupplierPartCode} onChange={(e) => setFormData(prev => ({ ...prev, originalSupplierPartCode: e.target.value }))} required /></div>}
-                        {formData.wholesalePrice && <div><Label htmlFor="originalWholesalePrice">Previous Wholesale Price *</Label><Input id="originalWholesalePrice" type="number" step="0.01" value={formData.originalWholesalePrice} onChange={(e) => setFormData(prev => ({ ...prev, originalWholesalePrice: e.target.value }))} required /></div>}
-                        {formData.retailPrice && <div><Label htmlFor="originalRetailPrice">Previous Retail Price *</Label><Input id="originalRetailPrice" type="number" step="0.01" value={formData.originalRetailPrice} onChange={(e) => setFormData(prev => ({ ...prev, originalRetailPrice: e.target.value }))} required /></div>}
-                      </div>
-                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div>
@@ -1363,13 +1601,6 @@ export default function PartApplicationPage() {
                         />
                       </div>
 
-                      {submissionMode === 'price_supplier_change' && formData.standardPrice && (
-                        <div>
-                          <Label htmlFor="originalPrice">Previous Standard Price *</Label>
-                          <Input id="originalPrice" type="number" step="0.01" value={formData.originalPrice} onChange={(e) => setFormData(prev => ({ ...prev, originalPrice: e.target.value }))} required />
-                        </div>
-                      )}
-
                       <div>
                         <Label htmlFor="priceEffectiveDate">Price Effective Date{submissionMode === 'single' ? ' *' : ''}</Label>
                         <Input
@@ -1381,18 +1612,37 @@ export default function PartApplicationPage() {
                         />
                       </div>
 
-                      <div>
-                        <Label htmlFor="leadingTime">Leading Time{submissionMode === 'single' ? ' *' : ''}</Label>
-                        <Input
-                          id="leadingTime"
-                          value={formData.leadingTime}
-                          onChange={(e) => setFormData(prev => ({ ...prev, leadingTime: e.target.value }))}
-                          placeholder="e.g. 14 days"
-                          required={submissionMode === 'single'}
-                        />
-                      </div>
                     </div>
 
+                    </div>
+
+                    <div className="rounded-lg border p-3 space-y-3">
+                      <h3 className="text-sm font-semibold text-gray-800">Material Purchasing Parameters</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="leadingTime">Leading Time *</Label>
+                          <Input
+                            id="leadingTime"
+                            value={formData.leadingTime}
+                            onChange={(e) => setFormData(prev => ({ ...prev, leadingTime: e.target.value }))}
+                            placeholder="e.g. 14 days"
+                            required={submissionMode === 'single'}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="minimumOrderQuantity">Minimum Order Quantity *</Label>
+                          <Input
+                            id="minimumOrderQuantity"
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={formData.minimumOrderQuantity}
+                            onChange={(e) => setFormData(prev => ({ ...prev, minimumOrderQuantity: e.target.value }))}
+                            placeholder="Enter MOQ"
+                            required={submissionMode === 'single'}
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     <div className="space-y-3 rounded-lg border p-3">
@@ -1422,37 +1672,10 @@ export default function PartApplicationPage() {
                         </div>
                       ))}
                     </div>
+                    </>}
 
-                    {submissionMode === 'price_supplier_change' && cleanPriceBreakRows(priceBreakRows).length > 0 && (
-                      <div className="space-y-3 rounded-lg border border-purple-200 bg-purple-50 p-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <Label>Previous Price Breaks *</Label>
-                            <p className="text-xs text-purple-700">Required because new price breaks were entered.</p>
-                          </div>
-                          <Button type="button" variant="outline" size="sm" onClick={addPreviousPriceBreakRow}>
-                            <Plus className="h-4 w-4 mr-1" />
-                            Add Previous Row
-                          </Button>
-                        </div>
-                        {previousPriceBreakRows.map((row) => (
-                          <div key={row.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
-                            <div>
-                              <Label htmlFor={`previousPriceBreakQty-${row.id}`}>Previous Quantity Over</Label>
-                              <Input id={`previousPriceBreakQty-${row.id}`} type="number" min="0" step="1" value={row.quantityOver} onChange={(e) => updatePreviousPriceBreakRow(row.id, 'quantityOver', e.target.value)} placeholder="e.g. 10" />
-                            </div>
-                            <div>
-                              <Label htmlFor={`previousPriceBreakNet-${row.id}`}>Previous Net Price (AUD)</Label>
-                              <Input id={`previousPriceBreakNet-${row.id}`} type="number" min="0" step="0.01" value={row.netPriceAud} onChange={(e) => updatePreviousPriceBreakRow(row.id, 'netPriceAud', e.target.value)} placeholder="e.g. 100.00" />
-                            </div>
-                            <Button type="button" variant="outline" size="sm" onClick={() => removePreviousPriceBreakRow(row.id)} disabled={previousPriceBreakRows.length === 1}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
 
+                    {submissionMode === 'single' && <>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 rounded-lg border p-3">
                       <div>
                         <Label htmlFor="unit">Unit{submissionMode === 'single' ? ' *' : ''}</Label>
@@ -1592,6 +1815,7 @@ export default function PartApplicationPage() {
                         rows={2}
                       />
                     </div>
+                    </>}
                   </>
                 ) : (
                   <div className="space-y-4 rounded-lg border p-4">
@@ -1646,24 +1870,28 @@ export default function PartApplicationPage() {
                   </div>
                 )}
 
-                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="font-semibold text-blue-900">Print application form for signature</p>
-                      <p className="text-xs text-blue-700">Print this form, get the manager signature, then upload the signed Manager Approval file below.</p>
+                {(submissionMode !== 'price_supplier_change' || requiresManagerApproval()) && (
+                  <>
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="font-semibold text-blue-900">Print application form for signature</p>
+                          <p className="text-xs text-blue-700">Print this form, get the manager signature, then upload the signed Manager Approval file below.</p>
+                        </div>
+                        <Button type="button" variant="outline" onClick={() => submissionMode === 'price_supplier_change' ? printPriceSupplierChangeForm() : printCurrentApplicationForm()}>
+                          <Printer className="h-4 w-4 mr-2" />
+                          Print Current Form
+                        </Button>
+                      </div>
                     </div>
-                    <Button type="button" variant="outline" onClick={() => printCurrentApplicationForm()}>
-                      <Printer className="h-4 w-4 mr-2" />
-                      Print Current Form
-                    </Button>
-                  </div>
-                </div>
 
-                <div className="rounded-lg border p-4">
-                  <Label htmlFor="managerApprovalFile">Signed Manager Approval *</Label>
-                  <Input id="managerApprovalFile" type="file" onChange={(e) => setManagerApprovalFile(e.target.files?.[0] || null)} required className="mt-2" />
-                  {managerApprovalFile && <p className="text-xs text-gray-500 mt-1">Selected: {managerApprovalFile.name}</p>}
-                </div>
+                    <div className="rounded-lg border p-4">
+                      <Label htmlFor="managerApprovalFile">Signed Manager Approval{requiresManagerApproval() ? ' *' : ''}</Label>
+                      <Input id="managerApprovalFile" type="file" onChange={(e) => setManagerApprovalFile(e.target.files?.[0] || null)} required={requiresManagerApproval()} className="mt-2" />
+                      {managerApprovalFile && <p className="text-xs text-gray-500 mt-1">Selected: {managerApprovalFile.name}</p>}
+                    </div>
+                  </>
+                )}
 
                 <Button
                   type="submit"
