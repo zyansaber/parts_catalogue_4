@@ -72,7 +72,7 @@ interface PartApplication {
   rejectedAt?: string;
 }
 
-type PriceSupplierChangeField = '' | 'purchasingChange' | 'retailPrice' | 'wholesalePrice';
+type PriceSupplierChangeField = '' | 'purchasingChange' | 'retailPrice' | 'wholesalePrice' | 'partNameChange';
 
 interface PriceBreakRow {
   id: string;
@@ -603,6 +603,7 @@ export default function PartApplicationPage() {
       const missingChangeFields = [
         selectedChangeFields.includes('retailPrice') && !formData.retailPrice ? 'Retail Price' : '',
         selectedChangeFields.includes('wholesalePrice') && !formData.wholesalePrice ? 'Wholesale Price' : '',
+        selectedChangeFields.includes('partNameChange') && !formData.partName.trim() ? 'Part Name' : '',
         selectedChangeFields.includes('purchasingChange') && (!formData.supplier || !formData.supplierSapCode) ? 'Supplier and Supplier SAP Code' : '',
         selectedChangeFields.includes('purchasingChange') && !(formData.supplier || formData.supplierSapCode || formData.standardPrice || formData.priceEffectiveDate || formData.leadingTime || formData.minimumOrderQuantity || priceBreaks.length > 0 || formData.unit) ? 'At least one Purchasing Change field' : '',
         selectedChangeFields.includes('purchasingChange') && formData.isNewSupplier && (!formData.standardPrice || !formData.priceEffectiveDate || !formData.unit || !formData.leadingTime || !formData.minimumOrderQuantity) ? 'Purchasing Price, Price Effective Date, Unit, Leading Time, and Minimum Order Quantity for new supplier' : '',
@@ -1034,6 +1035,7 @@ export default function PartApplicationPage() {
 
   const getChangeFieldLabel = (field: PriceSupplierChangeField) => ({
     purchasingChange: 'Purchasing Change',
+    partNameChange: 'Part name change',
     retailPrice: 'Retail Price',
     wholesalePrice: 'Wholesale Price',
     '': 'N/A',
@@ -1052,7 +1054,7 @@ export default function PartApplicationPage() {
     ];
 
     const changeRows = [
-      hasChangeContent('purchasingChange') ? ['New Part Name', formData.partName] : null,
+      hasChangeContent('partNameChange') ? ['New Part Name', formData.partName] : null,
       hasChangeContent('purchasingChange') ? ['New Supplier', formData.supplier] : null,
       hasChangeContent('purchasingChange') ? ['Supplier SAP Code', formData.supplierSapCode] : null,
       hasChangeContent('purchasingChange') && formData.isNewSupplier ? ['Is This New Supplier', 'Yes'] : null,
@@ -1468,7 +1470,7 @@ export default function PartApplicationPage() {
                             <Select value={formData.changeField} onValueChange={(value: PriceSupplierChangeField) => setFormData(prev => ({ ...prev, changeField: value }))}>
                               <SelectTrigger><SelectValue placeholder="Select content to change" /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="purchasingChange">Purchasing Change</SelectItem><SelectItem value="wholesalePrice">Wholesale Price</SelectItem><SelectItem value="retailPrice">Retail Price</SelectItem>
+                                <SelectItem value="purchasingChange">Purchasing Change</SelectItem><SelectItem value="wholesalePrice">Wholesale Price</SelectItem><SelectItem value="retailPrice">Retail Price</SelectItem><SelectItem value="partNameChange">Part name change</SelectItem>
                               </SelectContent>
                             </Select>
                             <Button type="button" variant="outline" onClick={addChangeContent} disabled={!formData.changeField || formData.changeFields.includes(formData.changeField)}>Add Change</Button>
@@ -1507,6 +1509,7 @@ export default function PartApplicationPage() {
                             </div>
                           </div>
                         )}
+                        {hasChangeContent('partNameChange') && <div><Label htmlFor="partNameChange">Part name *</Label><Input id="partNameChange" value={formData.partName} onChange={(e) => setFormData(prev => ({ ...prev, partName: e.target.value }))} placeholder="Enter the new part name" required /></div>}
                         {hasChangeContent('wholesalePrice') && <div><Label htmlFor="wholesalePriceChange">Wholesale Price *</Label><Input id="wholesalePriceChange" type="number" step="0.01" value={formData.wholesalePrice} onChange={(e) => setFormData(prev => ({ ...prev, wholesalePrice: e.target.value }))} placeholder="Enter wholesale price" required /></div>}
                         {hasChangeContent('retailPrice') && <div><Label htmlFor="retailPriceChange">Retail Price *</Label><Input id="retailPriceChange" type="number" step="0.01" value={formData.retailPrice} onChange={(e) => setFormData(prev => ({ ...prev, retailPrice: e.target.value }))} placeholder="Enter retail price" required /></div>}
                         <p className="text-xs text-purple-700">Signed file is required for Retail Price, Wholesale Price, new supplier changes, and Purchasing Price/Price Break increases.</p>
