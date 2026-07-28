@@ -455,6 +455,50 @@ export default function PartApplicationPage() {
     });
   };
 
+  const sendCompletionEmail = async (application: PartApplication, completedPartCode = application.partCode || '', imageUrl = application.imageUrl || '') => {
+    if (!application.requesterEmail) return;
+
+    await EmailService.sendApplicationEmail({
+      emailType: 'part_code_completed',
+      toEmail: application.requesterEmail,
+      requesterName: application.requesterName || application.requestedBy,
+      requesterEmail: application.requesterEmail,
+      applicationId: application.id,
+      applicationType: application.applicationType,
+      isSalesItem: application.isSalesItem,
+      vanCodeType: application.vanCodeType,
+      originalSupplier: application.originalSupplier,
+      originalPrice: application.originalPrice,
+      newSupplier: application.newSupplier,
+      newPrice: application.newPrice,
+      supplier: application.supplier,
+      supplierSapCode: application.supplierSapCode || '',
+      supplierPartCode: application.supplierPartCode || '',
+      wholesalePrice: application.wholesalePrice || '',
+      retailPrice: application.retailPrice || '',
+      standardPrice: application.standardPrice,
+      isPrototypePricePending: application.isPrototypePricePending,
+      estimatedPrice: application.estimatedPrice,
+      specifications: application.specifications,
+      notes: application.notes,
+      partCode: completedPartCode,
+      imageUrl,
+      partName: application.partName,
+      priceEffectiveDate: application.priceEffectiveDate,
+      leadingTime: application.leadingTime,
+      unit: application.unit,
+      isPack: application.isPack,
+      packQuantity: application.packQuantity,
+      applicationFileUrl: application.applicationFileUrl,
+      managerApprovalFileUrl: application.managerApprovalFileUrl,
+      submittedAt: application.submittedAt,
+      subjectPrefix: emailSettings.subjectPrefix,
+      serviceId: emailSettings.serviceId,
+      publicKey: emailSettings.publicKey,
+      privateKey: emailSettings.privateKey,
+    });
+  };
+
 
 
   const lookupPartForChange = async (partCodeValue: string) => {
@@ -762,35 +806,7 @@ export default function PartApplicationPage() {
       let emailWarning = '';
       if (application.requesterEmail) {
         try {
-          await EmailService.sendApplicationEmail({
-            emailType: 'part_code_completed',
-            toEmail: application.requesterEmail,
-            requesterName: application.requesterName || application.requestedBy,
-            requesterEmail: application.requesterEmail,
-            applicationId: application.id,
-            supplier: application.supplier,
-            supplierSapCode: application.supplierSapCode || '',
-            supplierPartCode: application.supplierPartCode || '',
-            wholesalePrice: application.wholesalePrice || '',
-            retailPrice: application.retailPrice || '',
-            standardPrice: application.standardPrice,
-            specifications: application.specifications,
-            notes: application.notes,
-            partCode: code,
-            imageUrl: partImageUrl || application.imageUrl,
-            partName: application.partName,
-            priceEffectiveDate: application.priceEffectiveDate,
-            leadingTime: application.leadingTime,
-            unit: application.unit,
-            isPack: application.isPack,
-            packQuantity: application.packQuantity,
-            applicationFileUrl: application.applicationFileUrl,
-            submittedAt: application.submittedAt,
-            subjectPrefix: emailSettings.subjectPrefix,
-            serviceId: emailSettings.serviceId,
-            publicKey: emailSettings.publicKey,
-            privateKey: emailSettings.privateKey,
-          });
+          await sendCompletionEmail(application, code, partImageUrl || application.imageUrl);
         } catch (emailError) {
           console.error('Part code completion email failed:', emailError);
           emailWarning = ` Email failed: ${emailError instanceof Error ? emailError.message : 'Unknown EmailJS error'}`;
@@ -1140,13 +1156,23 @@ export default function PartApplicationPage() {
         replacementImageUrl = await FirebaseService.uploadPartImageWithCode(partCodeImage, partCode.trim());
       }
 
-      await FirebaseService.approvePartApplication(
-        approveDialog.application.id,
-        partCode.trim(),
+      const approvedApplication = approveDialog.application;
+      const approvedPartCode = partCode.trim();
+      const partImageUrl = await FirebaseService.approvePartApplication(
+        approvedApplication.id,
+        approvedPartCode,
         replacementImageUrl,
       );
 
-      showMessage('success', `Application ${approveDialog.application.id} approved with part code ${partCode}. Image saved to the parts catalogue as ${partCode}.png.`);
+      let emailWarning = '';
+      try {
+        await sendCompletionEmail(approvedApplication, approvedPartCode, partImageUrl || replacementImageUrl || approvedApplication.imageUrl);
+      } catch (emailError) {
+        console.error('Approval completion email failed:', emailError);
+        emailWarning = ` Email failed: ${emailError instanceof Error ? emailError.message : 'Unknown EmailJS error'}`;
+      }
+
+      showMessage(emailWarning ? 'error' : 'success', `Application ${approvedApplication.id} approved with part code ${approvedPartCode}. Image saved to the parts catalogue as ${approvedPartCode}.png.${emailWarning}`);
 
       await loadApplications();
 
@@ -1233,8 +1259,15 @@ export default function PartApplicationPage() {
         status: 'approved',
         partCode: application.partCode || '',
       });
+      let emailWarning = '';
+      try {
+        await sendCompletionEmail(application);
+      } catch (emailError) {
+        console.error('Price/supplier change completion email failed:', emailError);
+        emailWarning = ` Email failed: ${emailError instanceof Error ? emailError.message : 'Unknown EmailJS error'}`;
+      }
       await loadApplications();
-      showMessage('success', `Price/Supplier Change ${application.id} approved and completed.`);
+      showMessage(emailWarning ? 'error' : 'success', `Price/Supplier Change ${application.id} approved and completed.${emailWarning}`);
     } catch (error) {
       console.error('Error completing price/supplier change:', error);
       showMessage('error', 'Failed to complete price/supplier change');
