@@ -9,7 +9,7 @@ This is a complete deployment package for the Parts Catalogue System on Render.c
 2. **Connect to Render.com:**
    - Go to https://render.com
    - Sign up/Sign in
-   - Click "New +" → "Web Service"
+   - Click "New +" → "Static Site"
    - Connect your repository
 
 3. **Configure the service:**
@@ -17,9 +17,9 @@ This is a complete deployment package for the Parts Catalogue System on Render.c
    - **Publish Directory:** `dist`
    - **Node Version:** 20
 
-4. **Deploy:** Click "Create Web Service"
+4. **Deploy:** Click "Create Static Site"
 
-## Alternative: Using render.yaml (Recommended)
+## Alternative: Using render.yaml (Recommended, auto-static config)
 
 If your repository has the `render.yaml` file (included in this package), Render will automatically use the configuration:
 
@@ -57,3 +57,8 @@ If you encounter any issues during deployment, check:
 4. Publish directory is set to `dist`
 
 Deploy with confidence! 🚀
+
+## Why Static Site (Not Web Service)
+
+This project is built by Vite into static files in `dist`, so Render should deploy it as a **Static Site** instead of a Web Service.
+Using Web Service can cause runtime/build confusion (for example `vite: command not found` if devDependencies are skipped).
