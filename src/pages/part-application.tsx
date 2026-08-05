@@ -89,6 +89,7 @@ interface VanCodeApplicationRow {
 }
 
 const todayDateString = () => new Date().toISOString().slice(0, 10);
+const APPLICATIONS_PER_PAGE = 4;
 
 interface ApplicationRequester {
   id: string;
@@ -133,6 +134,7 @@ export default function PartApplicationPage() {
   const [partCodeDrafts, setPartCodeDrafts] = useState<Record<string, string>>({});
   const [submissionMode, setSubmissionMode] = useState<'single' | 'van_code' | 'price_supplier_change'>('single');
   const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'pending' | 'approved' | 'prototype_price_pending' | 'price_supplier_change'>('pending');
+  const [applicationPage, setApplicationPage] = useState(1);
   const [prototypePassword, setPrototypePassword] = useState('');
   const [foundPart, setFoundPart] = useState<Part | null>(null);
   const [isLookingUpPart, setIsLookingUpPart] = useState(false);
@@ -190,6 +192,10 @@ export default function PartApplicationPage() {
   useEffect(() => {
     checkPrototypePricePendingReminders();
   }, [applications, emailSettings.pricePendingNotifyEmail]);
+
+  useEffect(() => {
+    setApplicationPage(1);
+  }, [applicationStatusFilter]);
 
   const loadApplicationConfig = async () => {
     const [loadedRequesters, loadedEmailSettings] = await Promise.all([
@@ -1363,6 +1369,19 @@ export default function PartApplicationPage() {
       : applicationStatusFilter === 'price_supplier_change'
         ? priceSupplierChangeApplications
         : applications.filter((app) => app.status === applicationStatusFilter);
+  const totalApplicationPages = Math.max(1, Math.ceil(visibleApplications.length / APPLICATIONS_PER_PAGE));
+  const currentApplicationPage = Math.min(applicationPage, totalApplicationPages);
+  const firstVisibleApplicationIndex = (currentApplicationPage - 1) * APPLICATIONS_PER_PAGE;
+  const paginatedApplications = visibleApplications.slice(
+    firstVisibleApplicationIndex,
+    firstVisibleApplicationIndex + APPLICATIONS_PER_PAGE
+  );
+
+  useEffect(() => {
+    if (applicationPage > totalApplicationPages) {
+      setApplicationPage(totalApplicationPages);
+    }
+  }, [applicationPage, totalApplicationPages]);
 
   return (
     <div className="space-y-6">
@@ -1969,7 +1988,7 @@ export default function PartApplicationPage() {
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span>Application List</span>
-                <Badge variant="secondary">{visibleApplications.length} shown</Badge>
+                <Badge variant="secondary">{visibleApplications.length} total</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -2022,8 +2041,9 @@ export default function PartApplicationPage() {
                   <p>{applications.length === 0 ? 'No applications yet' : `No ${applicationStatusFilter} applications`}</p>
                 </div>
               ) : (
+                <>
                 <div className="space-y-3">
-                  {visibleApplications.map((app) => (
+                  {paginatedApplications.map((app) => (
                     <div key={app.id} className="border rounded-lg p-3 space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="flex flex-wrap items-center gap-2">
@@ -2272,6 +2292,33 @@ export default function PartApplicationPage() {
                     </div>
                   ))}
                 </div>
+                  <div className="flex flex-col gap-2 border-t pt-3 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                      Showing {firstVisibleApplicationIndex + 1}-{Math.min(firstVisibleApplicationIndex + paginatedApplications.length, visibleApplications.length)} of {visibleApplications.length}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setApplicationPage((page) => Math.max(1, page - 1))}
+                        disabled={currentApplicationPage === 1}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-xs font-medium text-gray-500">
+                        Page {currentApplicationPage} / {totalApplicationPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setApplicationPage((page) => Math.min(totalApplicationPages, page + 1))}
+                        disabled={currentApplicationPage === totalApplicationPages}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
