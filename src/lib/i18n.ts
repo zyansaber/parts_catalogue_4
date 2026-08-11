@@ -77,9 +77,13 @@ export const labels: Record<string, { zh: string; en: string }> = {
 };
 
 export function getLang(): Lang {
-  if (typeof window === 'undefined') return 'zh';
+  if (typeof window === 'undefined') return 'en';
+
+  const urlLang = window.location.pathname.split('/')[1];
+  if (urlLang === 'zh' || urlLang === 'en') return urlLang;
+
   const val = window.localStorage.getItem('app_lang');
-  return val === 'en' ? 'en' : 'zh';
+  return val === 'zh' ? 'zh' : 'en';
 }
 
 export function setLang(lang: Lang) {
