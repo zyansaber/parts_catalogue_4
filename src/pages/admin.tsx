@@ -42,7 +42,7 @@ export default function AdminPage() {
   const [debugPartCode, setDebugPartCode] = useState('');
   const [debugChecking, setDebugChecking] = useState(false);
   const [debugResults, setDebugResults] = useState<Array<{ url: string; ok: boolean }>>([]);
-  const [applicationRequesters, setApplicationRequesters] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [applicationRequesters, setApplicationRequesters] = useState<Array<{ id: string; name: string; email: string; managerName: string; managerEmail: string }>>([]);
   const [emailSettings, setEmailSettings] = useState({ notifyEmail: '', pricePendingNotifyEmail: '', subjectPrefix: 'Part Application', serviceId: '', publicKey: '', privateKey: '' });
   const [showEmailJsSettings, setShowEmailJsSettings] = useState(false);
   const detectedCfBase = (import.meta.env.VITE_CF_PUBLIC_BASE || '').trim();
@@ -112,7 +112,9 @@ export default function AdminPage() {
       FirebaseService.getApplicationRequesters(),
       FirebaseService.getApplicationEmailSettings()
     ]);
-    setApplicationRequesters(requesters.length ? requesters : [{ id: crypto.randomUUID(), name: '', email: '' }]);
+    setApplicationRequesters(requesters.length
+      ? requesters.map((requester) => ({ ...requester, managerName: requester.managerName || '', managerEmail: requester.managerEmail || '' }))
+      : [{ id: crypto.randomUUID(), name: '', email: '', managerName: '', managerEmail: '' }]);
     setEmailSettings({
       notifyEmail: settings.notifyEmail || '',
       pricePendingNotifyEmail: settings.pricePendingNotifyEmail || '',
@@ -125,10 +127,10 @@ export default function AdminPage() {
 
   const saveApplicationAdminConfig = async () => {
     const validRequesters = applicationRequesters
-      .map((item) => ({ ...item, name: item.name.trim(), email: item.email.trim() }))
-      .filter((item) => item.name && item.email);
-    if (validRequesters.length !== applicationRequesters.filter((item) => item.name.trim() || item.email.trim()).length) {
-      showMessage('error', 'Each requester must have both name and email.');
+      .map((item) => ({ ...item, name: item.name.trim(), email: item.email.trim(), managerName: item.managerName.trim(), managerEmail: item.managerEmail.trim() }))
+      .filter((item) => item.name && item.email && item.managerName && item.managerEmail);
+    if (validRequesters.length !== applicationRequesters.filter((item) => item.name.trim() || item.email.trim() || item.managerName.trim() || item.managerEmail.trim()).length) {
+      showMessage('error', 'Each requester must have requester and manager names and emails.');
       return;
     }
     setIsSaving(true);
@@ -137,7 +139,7 @@ export default function AdminPage() {
         FirebaseService.saveApplicationRequesters(validRequesters),
         FirebaseService.saveApplicationEmailSettings(emailSettings)
       ]);
-      setApplicationRequesters(validRequesters.length ? validRequesters : [{ id: crypto.randomUUID(), name: '', email: '' }]);
+      setApplicationRequesters(validRequesters.length ? validRequesters : [{ id: crypto.randomUUID(), name: '', email: '', managerName: '', managerEmail: '' }]);
       showMessage('success', 'Application requesters and email settings saved.');
     } catch (error) {
       console.error('Error saving application admin config:', error);
@@ -147,7 +149,7 @@ export default function AdminPage() {
     }
   };
 
-  const updateRequester = (id: string, field: 'name' | 'email', value: string) => {
+  const updateRequester = (id: string, field: 'name' | 'email' | 'managerName' | 'managerEmail', value: string) => {
     setApplicationRequesters((prev) => prev.map((item) => item.id === id ? { ...item, [field]: value } : item));
   };
 
@@ -328,7 +330,7 @@ export default function AdminPage() {
         <CardContent className="space-y-4">
           <div className="space-y-3">
             {applicationRequesters.map((requester) => (
-              <div key={requester.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
+              <div key={requester.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2">
                 <Input
                   value={requester.name}
                   onChange={(e) => updateRequester(requester.id, 'name', e.target.value)}
@@ -340,6 +342,8 @@ export default function AdminPage() {
                   placeholder="Requester email"
                   type="email"
                 />
+                <Input value={requester.managerName || ''} onChange={(e) => updateRequester(requester.id, 'managerName', e.target.value)} placeholder="Manager name" />
+                <Input value={requester.managerEmail || ''} onChange={(e) => updateRequester(requester.id, 'managerEmail', e.target.value)} placeholder="Manager email" type="email" />
                 <Button
                   type="button"
                   variant="outline"
@@ -352,7 +356,7 @@ export default function AdminPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setApplicationRequesters((prev) => [...prev, { id: crypto.randomUUID(), name: '', email: '' }])}
+              onClick={() => setApplicationRequesters((prev) => [...prev, { id: crypto.randomUUID(), name: '', email: '', managerName: '', managerEmail: '' }])}
             >
               <Plus className="h-4 w-4 mr-2" />
               Add requester
