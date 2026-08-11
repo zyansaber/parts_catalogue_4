@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Search, Eye, Package, ChevronLeft, ChevronRight,
+  Eye, Package, ChevronLeft, ChevronRight,
   ChevronsLeft, ChevronsRight, SlidersHorizontal,
   ArrowUpDown, CheckSquare, AlertTriangle, CalendarClock,
 } from 'lucide-react';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -18,6 +17,8 @@ import { Part } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
 import { resolvePartDescription, type Lang } from '@/lib/i18n';
+import { searchPartsLocally } from '@/lib/part-search';
+import { PartSearchAutocomplete } from '@/components/part-search-autocomplete';
 
 export default function PartsCatalogueStandalonePage() {
   const [allParts, setAllParts] = useState<Record<string, Part>>({});
@@ -43,15 +44,9 @@ export default function PartsCatalogueStandalonePage() {
 
   useEffect(() => {
     const load = async () => {
-      if (debouncedSearchTerm) {
-        setIsSearching(true);
-      } else {
-        setLoading(true);
-      }
+      setLoading(true);
       try {
-        const partsData = debouncedSearchTerm
-          ? await FirebaseService.searchParts(debouncedSearchTerm, 10000)
-          : await FirebaseService.getAllParts();
+        const partsData = await FirebaseService.getAllParts();
         setAllParts(partsData);
       } catch (error) {
         console.error('Error loading parts:', error);
@@ -61,22 +56,20 @@ export default function PartsCatalogueStandalonePage() {
       }
     };
     load();
-  }, [debouncedSearchTerm]);
+  }, []);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearchTerm]);
 
   const filteredAndSortedParts = useMemo(() => {
-    const filtered = Object.entries(allParts).filter(([material, part]) => {
+    const fuzzyMatches = debouncedSearchTerm.trim()
+      ? searchPartsLocally(allParts, debouncedSearchTerm).map(({ material, part }) => [material, part] as [string, Part])
+      : Object.entries(allParts);
+    const filtered = fuzzyMatches.filter(([, part]) => {
       if (part.show_in_catalogue === false) return false;
-      const searchLower = debouncedSearchTerm.toLowerCase();
-      const matchesSearch = !searchLower ||
-        material.toLowerCase().includes(searchLower) ||
-        (part.SPRAS_EN || '').toLowerCase().includes(searchLower) ||
-        (part.SPRAS_ZH || '').toLowerCase().includes(searchLower);
       const matchesStock = !showInStockOnly || (part.Current_Stock_Qty || 0) > 0;
-      return matchesSearch && matchesStock;
+      return matchesStock;
     });
 
     filtered.sort(([materialA, partA], [materialB, partB]) => {
@@ -179,19 +172,16 @@ export default function PartsCatalogueStandalonePage() {
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           {/* Search */}
-          <div className="md:col-span-8 relative">
-            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <Input
+          <div className="md:col-span-8">
+            <PartSearchAutocomplete
+              parts={allParts}
               placeholder="Part code or description…"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-9 h-9 bg-white border-slate-300 text-sm placeholder:text-slate-400 focus-visible:ring-slate-900"
+              onChange={setSearchTerm}
+              lang={lang}
+              loading={isSearching}
+              className="[&_input]:h-9 [&_input]:bg-white [&_input]:border-slate-300 [&_input]:text-sm [&_input]:focus-visible:ring-slate-900"
             />
-            {isSearching && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <LoadingSpinner size="sm" />
-              </div>
-            )}
           </div>
 
           {/* Sort */}
