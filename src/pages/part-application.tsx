@@ -35,12 +35,18 @@ interface PartApplication {
   packQuantity: string;
   notes: string;
   submittedAt: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'awaiting_manager_approval' | 'pending' | 'approved' | 'rejected';
   imageUrl?: string;
   partCode?: string;
   requesterId?: string;
   requesterName?: string;
   requesterEmail?: string;
+  managerName?: string;
+  managerEmail?: string;
+  managerApprovalRequired?: boolean;
+  managerApprovalToken?: string;
+  managerApprovedAt?: string;
+  managerSignature?: string;
   supplierSapCode?: string;
   supplierPartCode?: string;
   wholesalePrice?: string;
@@ -95,6 +101,8 @@ interface ApplicationRequester {
   id: string;
   name: string;
   email: string;
+  managerName: string;
+  managerEmail: string;
 }
 
 interface ApplicationEmailSettings {
@@ -130,10 +138,9 @@ export default function PartApplicationPage() {
   const [priceBreakRows, setPriceBreakRows] = useState<PriceBreakRow[]>([{ id: crypto.randomUUID(), quantityOver: '', netPriceAud: '' }]);
   const [previousPriceBreakRows, setPreviousPriceBreakRows] = useState<PriceBreakRow[]>([{ id: crypto.randomUUID(), quantityOver: '', netPriceAud: '' }]);
   const [vanCodeRows, setVanCodeRows] = useState<VanCodeApplicationRow[]>([{ id: crypto.randomUUID(), vanCodeType: '', partName: '', priceEffectiveDate: todayDateString(), estimatedPrice: '' }]);
-  const [managerApprovalFile, setManagerApprovalFile] = useState<File | null>(null);
   const [partCodeDrafts, setPartCodeDrafts] = useState<Record<string, string>>({});
   const [submissionMode, setSubmissionMode] = useState<'single' | 'van_code' | 'price_supplier_change'>('single');
-  const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'pending' | 'approved' | 'prototype_price_pending' | 'price_supplier_change'>('pending');
+  const [applicationStatusFilter, setApplicationStatusFilter] = useState<'all' | 'awaiting_manager_approval' | 'pending' | 'approved' | 'prototype_price_pending' | 'price_supplier_change'>('pending');
   const [applicationPage, setApplicationPage] = useState(1);
   const [prototypePassword, setPrototypePassword] = useState('');
   const [foundPart, setFoundPart] = useState<Part | null>(null);
@@ -272,7 +279,6 @@ export default function PartApplicationPage() {
     setPriceBreakRows([{ id: crypto.randomUUID(), quantityOver: '', netPriceAud: '' }]);
     setPreviousPriceBreakRows([{ id: crypto.randomUUID(), quantityOver: '', netPriceAud: '' }]);
     setVanCodeRows([{ id: crypto.randomUUID(), vanCodeType: '', partName: '', priceEffectiveDate: todayDateString(), estimatedPrice: '' }]);
-    setManagerApprovalFile(null);
     setSubmissionMode('single');
     setPrototypePassword('');
     setFoundPart(null);
@@ -461,6 +467,44 @@ export default function PartApplicationPage() {
     });
   };
 
+  const sendManagerApprovalEmail = async (application: PartApplication, approvalUrl: string) => {
+    if (!application.managerEmail) throw new Error('The selected requester does not have a manager email configured.');
+    await EmailService.sendApplicationEmail({
+      emailType: 'manager_approval_request',
+      toEmail: application.managerEmail,
+      managerName: application.managerName,
+      approvalUrl,
+      requesterName: application.requesterName || application.requestedBy,
+      requesterEmail: application.requesterEmail || '',
+      applicationId: application.id,
+      applicationType: application.applicationType,
+      isSalesItem: application.isSalesItem,
+      vanCodeType: application.vanCodeType,
+      supplier: application.supplier,
+      supplierSapCode: application.supplierSapCode || '',
+      supplierPartCode: application.supplierPartCode,
+      wholesalePrice: application.wholesalePrice,
+      retailPrice: application.retailPrice,
+      standardPrice: application.standardPrice,
+      isPrototypePricePending: application.isPrototypePricePending,
+      estimatedPrice: application.estimatedPrice,
+      partName: application.partName,
+      priceEffectiveDate: application.priceEffectiveDate,
+      leadingTime: application.leadingTime,
+      unit: application.unit,
+      isPack: application.isPack,
+      packQuantity: application.packQuantity,
+      specifications: application.specifications,
+      notes: application.notes,
+      imageUrl: application.imageUrl,
+      submittedAt: application.submittedAt,
+      subjectPrefix: emailSettings.subjectPrefix,
+      serviceId: emailSettings.serviceId,
+      publicKey: emailSettings.publicKey,
+      privateKey: emailSettings.privateKey,
+    });
+  };
+
   const sendCompletionEmail = async (application: PartApplication, completedPartCode = application.partCode || '', imageUrl = application.imageUrl || '') => {
     if (!application.requesterEmail) return;
 
@@ -601,7 +645,7 @@ export default function PartApplicationPage() {
     e.preventDefault();
     const isManualRequester = formData.requesterId === 'manual';
     const selectedRequester = isManualRequester
-      ? { id: 'manual', name: formData.requestedBy.trim(), email: formData.requesterEmail.trim() }
+      ? { id: 'manual', name: formData.requestedBy.trim(), email: formData.requesterEmail.trim(), managerName: '', managerEmail: '' }
       : requesters.find((requester) => requester.id === formData.requesterId);
 
     if (!formData.requesterId || !selectedRequester) {
@@ -634,8 +678,8 @@ export default function PartApplicationPage() {
       return;
     }
 
-    if (requiresManagerApproval() && !managerApprovalFile) {
-      showMessage('error', 'Please upload the signed Manager Approval file');
+    if (requiresManagerApproval() && (!selectedRequester.managerName || !selectedRequester.managerEmail)) {
+      showMessage('error', 'Please select a requester with a manager configured in Admin.');
       return;
     }
 
@@ -670,7 +714,6 @@ export default function PartApplicationPage() {
 
     try {
       if (submissionMode === 'van_code') {
-        const managerApprovalFileUrl = await FirebaseService.uploadApplicationAttachment(managerApprovalFile, `MANAGER-${Date.now()}`);
         const createdApplications: PartApplication[] = [];
 
         for (const [index, row] of vanCodeRows.entries()) {
@@ -703,12 +746,16 @@ export default function PartApplicationPage() {
             requesterName: selectedRequester.name,
             requesterEmail: selectedRequester.email,
             submittedAt: new Date().toISOString(),
-            status: 'pending',
+            status: 'awaiting_manager_approval',
+            managerName: selectedRequester.managerName,
+            managerEmail: selectedRequester.managerEmail,
+            managerApprovalRequired: true,
+            managerApprovalToken: crypto.randomUUID(),
             imageUrl: '',
             applicationFileUrl: '',
             applicationFileName: '',
-            managerApprovalFileUrl,
-            managerApprovalFileName: managerApprovalFile.name,
+            managerApprovalFileUrl: '',
+            managerApprovalFileName: '',
           };
 
           await FirebaseService.savePartApplication(newApplication);
@@ -717,43 +764,23 @@ export default function PartApplicationPage() {
 
         let emailWarning = '';
         try {
-          await sendSubmissionEmail({
-            ...createdApplications[0],
-            id: createdApplications.length === 1 ? createdApplications[0].id : `${createdApplications[0].id} - ${createdApplications[createdApplications.length - 1].id}`,
-            applicationType: 'van_code',
-            vanCodeType: createdApplications.length === 1 ? createdApplications[0].vanCodeType : '',
-            supplier: `Van code application (${createdApplications.length} applications)`,
-            supplierSapCode: 'N/A',
-            supplierPartCode: 'N/A',
-            wholesalePrice: 'N/A',
-            retailPrice: 'N/A',
-            standardPrice: '',
-            isPrototypePricePending: true,
-            estimatedPrice: createdApplications.length === 1 ? createdApplications[0].estimatedPrice : 'Multiple',
-            partName: createdApplications.length === 1 ? createdApplications[0].partName : 'Multiple',
-            priceEffectiveDate: createdApplications.length === 1 ? createdApplications[0].priceEffectiveDate : 'Multiple',
-            leadingTime: 'N/A',
-            unit: 'N/A',
-            isPack: false,
-            packQuantity: '',
-            specifications: `Van code application: ${createdApplications.map((app) => app.partName).join(', ')}`,
-            managerApprovalFileUrl,
-            managerApprovalFileName: managerApprovalFile.name,
-          }, '', managerApprovalFileUrl);
+          await Promise.all(createdApplications.map((application) => sendManagerApprovalEmail(
+            application,
+            `${window.location.origin}/manager-approval/${encodeURIComponent(application.id)}?token=${encodeURIComponent(application.managerApprovalToken || '')}`
+          )));
         } catch (emailError) {
-          console.error('Van code submission email failed:', emailError);
+          console.error('Manager approval email failed:', emailError);
           emailWarning = ` Email failed: ${emailError instanceof Error ? emailError.message : 'Unknown EmailJS error'}`;
         }
 
         await loadApplications();
-        showMessage(emailWarning ? 'error' : 'success', `${createdApplications.length} van code applications submitted.${emailWarning}`);
+        showMessage(emailWarning ? 'error' : 'success', `${createdApplications.length} van code applications sent for manager signature.${emailWarning}`);
         resetForm();
         return;
       }
 
       const applicationId = generateApplicationId();
       const imageUrl = selectedFile ? await FirebaseService.uploadPartApplicationImage(selectedFile, applicationId) : '';
-      const managerApprovalFileUrl = managerApprovalFile ? await FirebaseService.uploadApplicationAttachment(managerApprovalFile, `MANAGER-${applicationId}-${Date.now()}`) : '';
 
       const newApplication: PartApplication = {
         ...formData,
@@ -772,24 +799,32 @@ export default function PartApplicationPage() {
         supplier: formData.supplier,
         newSupplier: submissionMode === 'price_supplier_change' ? formData.supplier : formData.newSupplier,
         newPrice: submissionMode === 'price_supplier_change' ? formData.standardPrice : formData.newPrice,
-        status: 'pending',
+        status: requiresManagerApproval() ? 'awaiting_manager_approval' : 'pending',
+        managerName: selectedRequester.managerName,
+        managerEmail: selectedRequester.managerEmail,
+        managerApprovalRequired: requiresManagerApproval(),
+        managerApprovalToken: requiresManagerApproval() ? crypto.randomUUID() : '',
         imageUrl,
         applicationFileUrl: '',
         applicationFileName: '',
-        managerApprovalFileUrl,
-        managerApprovalFileName: managerApprovalFile?.name || ''
+        managerApprovalFileUrl: '',
+        managerApprovalFileName: ''
       };
 
       await FirebaseService.savePartApplication(newApplication);
       let emailWarning = '';
       try {
-        await sendSubmissionEmail(newApplication, '', managerApprovalFileUrl);
+        if (newApplication.managerApprovalRequired) {
+          await sendManagerApprovalEmail(newApplication, `${window.location.origin}/manager-approval/${encodeURIComponent(applicationId)}?token=${encodeURIComponent(newApplication.managerApprovalToken || '')}`);
+        } else {
+          await sendSubmissionEmail(newApplication);
+        }
       } catch (emailError) {
         console.error('Submission email failed:', emailError);
         emailWarning = ` Email failed: ${emailError instanceof Error ? emailError.message : 'Unknown EmailJS error'}`;
       }
       await loadApplications();
-      showMessage(emailWarning ? 'error' : 'success', `Part application ${applicationId} submitted successfully!${emailWarning}`);
+      showMessage(emailWarning ? 'error' : 'success', `Part application ${applicationId} ${newApplication.managerApprovalRequired ? 'sent for manager signature' : 'submitted successfully'}!${emailWarning}`);
       resetForm();
 
     } catch (error) {
@@ -1354,11 +1389,13 @@ export default function PartApplicationPage() {
       case 'approved': return 'bg-green-100 text-green-800';
       case 'rejected': return 'bg-red-100 text-red-800';
       case 'pending': return 'bg-blue-100 text-blue-800';
+      case 'awaiting_manager_approval': return 'bg-violet-100 text-violet-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
   const pendingApplications = applications.filter((app) => app.status === 'pending');
+  const awaitingManagerApplications = applications.filter((app) => app.status === 'awaiting_manager_approval');
   const approvedApplications = applications.filter((app) => app.status === 'approved');
   const prototypePricePendingApplications = applications.filter((app) => app.isPrototypePricePending && !app.standardPrice);
   const priceSupplierChangeApplications = applications.filter((app) => app.applicationType === 'price_supplier_change');
@@ -1938,26 +1975,10 @@ export default function PartApplicationPage() {
                 )}
 
                 {(submissionMode !== 'price_supplier_change' || requiresManagerApproval()) && (
-                  <>
-                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          <p className="font-semibold text-blue-900">Print application form for signature</p>
-                          <p className="text-xs text-blue-700">Print this form, get the manager signature, then upload the signed Manager Approval file below.</p>
-                        </div>
-                        <Button type="button" variant="outline" onClick={() => submissionMode === 'price_supplier_change' ? printPriceSupplierChangeForm() : printCurrentApplicationForm()}>
-                          <Printer className="h-4 w-4 mr-2" />
-                          Print Current Form
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border p-4">
-                      <Label htmlFor="managerApprovalFile">Signed Manager Approval{requiresManagerApproval() ? ' *' : ''}</Label>
-                      <Input id="managerApprovalFile" type="file" onChange={(e) => setManagerApprovalFile(e.target.files?.[0] || null)} required={requiresManagerApproval()} className="mt-2" />
-                      {managerApprovalFile && <p className="text-xs text-gray-500 mt-1">Selected: {managerApprovalFile.name}</p>}
-                    </div>
-                  </>
+                  <div className="rounded-lg border border-violet-200 bg-violet-50 p-4">
+                    <p className="font-semibold text-violet-900">Electronic manager approval</p>
+                    <p className="text-xs text-violet-700">After submission, the configured manager receives a unique review link. The application enters the normal pending queue only after the manager signs and approves it.</p>
+                  </div>
                 )}
 
                 <Button
@@ -1992,7 +2013,15 @@ export default function PartApplicationPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setApplicationStatusFilter(applicationStatusFilter === 'awaiting_manager_approval' ? 'all' : 'awaiting_manager_approval')}
+                  className={`rounded-lg border p-3 text-left transition ${applicationStatusFilter === 'awaiting_manager_approval' ? 'border-violet-500 bg-violet-50' : 'hover:bg-gray-50'}`}
+                >
+                  <p className="text-xs text-violet-700">待签字批准 Signed Manager Approval</p>
+                  <p className="text-xl font-bold text-violet-700">{awaitingManagerApplications.length}</p>
+                </button>
                 <button
                   type="button"
                   onClick={() => setApplicationStatusFilter(applicationStatusFilter === 'prototype_price_pending' ? 'all' : 'prototype_price_pending')}
