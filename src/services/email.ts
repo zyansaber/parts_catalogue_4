@@ -1,5 +1,5 @@
 export interface ApplicationEmailPayload {
-  emailType: 'submitted' | 'part_code_completed' | 'rejected' | 'price_pending_reminder';
+  emailType: 'submitted' | 'manager_approval_request' | 'part_code_completed' | 'rejected' | 'price_pending_reminder';
   applicationType?: 'single' | 'van_code' | 'price_supplier_change';
   isSalesItem?: boolean;
   vanCodeType?: string;
@@ -30,6 +30,8 @@ export interface ApplicationEmailPayload {
   partCode?: string;
   applicationFileUrl?: string;
   managerApprovalFileUrl?: string;
+  managerName?: string;
+  approvalUrl?: string;
   imageUrl?: string;
   rejectionReason?: string;
   submittedAt?: string;
@@ -51,6 +53,9 @@ const escapeHtml = (value: unknown) => String(value ?? 'N/A')
   .replace(/'/g, '&#39;');
 
 const statusMeta = (payload: ApplicationEmailPayload) => {
+  if (payload.emailType === 'manager_approval_request') {
+    return { label: 'Manager Signature Required / 待经理签字', color: '#7c3aed', bg: '#f5f3ff' };
+  }
   if (payload.emailType === 'rejected') {
     return { label: 'Rejected / 已拒绝', color: '#dc2626', bg: '#fef2f2' };
   }
@@ -143,6 +148,7 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
           </div>` : ''}
 
           <div style="margin-top:22px; display:flex; gap:12px; flex-wrap:wrap;">
+            ${payload.approvalUrl ? `<a href="${escapeHtml(payload.approvalUrl)}" style="display:inline-block; padding:12px 18px; border-radius:10px; background:#7c3aed; color:#ffffff; text-decoration:none; font-weight:700;">Review &amp; Sign / 查看并签字</a>` : ''}
             ${payload.applicationFileUrl ? `<a href="${escapeHtml(payload.applicationFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#2563eb; color:#ffffff; text-decoration:none; font-weight:700;">Open Application File</a>` : ''}
             ${payload.managerApprovalFileUrl ? `<a href="${escapeHtml(payload.managerApprovalFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#7c3aed; color:#ffffff; text-decoration:none; font-weight:700;">Open Manager Approval</a>` : ''}
             ${payload.imageUrl ? `<a href="${escapeHtml(payload.imageUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700;">Open Part Image</a>` : ''}
@@ -158,6 +164,7 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
 };
 
 const buildEmailTitle = (payload: ApplicationEmailPayload) => {
+  if (payload.emailType === 'manager_approval_request') return `Manager Approval Required for ${payload.applicationId}`;
   if (payload.emailType === 'rejected') return `Part Application ${payload.applicationId} Rejected`;
   if (payload.emailType === 'part_code_completed') return `Part Application ${payload.applicationId} Completed`;
   if (payload.emailType === 'price_pending_reminder') return `Prototype Price Pending ${payload.applicationId} Needs Maintenance`;
@@ -203,6 +210,8 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
   addLine('Rejection Reason', payload.rejectionReason);
   addLine('Application File', payload.applicationFileUrl);
   addLine('Manager Approval', payload.managerApprovalFileUrl);
+  addLine('Manager', payload.managerName);
+  addLine('Review and Sign', payload.approvalUrl);
   addLine('Image URL', payload.imageUrl);
   addLine('Submitted At', payload.submittedAt || new Date().toISOString(), true);
 
@@ -262,6 +271,8 @@ export class EmailService {
           part_code: payload.partCode || 'Pending',
           application_file_url: payload.applicationFileUrl || 'N/A',
           manager_approval_file_url: payload.managerApprovalFileUrl || 'N/A',
+          manager_name: payload.managerName || 'N/A',
+          approval_url: payload.approvalUrl || 'N/A',
           image_url: payload.imageUrl || 'N/A',
           rejection_reason: payload.rejectionReason || 'N/A',
           submitted_at: payload.submittedAt || new Date().toISOString(),
