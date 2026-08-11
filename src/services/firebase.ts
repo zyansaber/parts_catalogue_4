@@ -468,6 +468,12 @@ export class FirebaseService {
         requesterId: application.requesterId || '',
         requesterName: application.requesterName || application.requestedBy || '',
         requesterEmail: application.requesterEmail || '',
+        managerName: application.managerName || '',
+        managerEmail: application.managerEmail || '',
+        managerApprovalToken: application.managerApprovalToken || '',
+        managerApprovalRequired: Boolean(application.managerApprovalRequired),
+        managerApprovedAt: application.managerApprovedAt || '',
+        managerSignature: application.managerSignature || '',
         requestedBy: application.requestedBy || application.requesterName || '',
         department: application.department || '',
         priority: application.priority || 'medium',
@@ -520,6 +526,29 @@ export class FirebaseService {
       console.error('Error saving application:', error);
       throw error;
     }
+  }
+
+  static async getPartApplicationForManager(applicationId: string, token: string): Promise<any | null> {
+    const snapshot = await get(ref(database, `partApplications/${applicationId}`));
+    if (!snapshot.exists() || snapshot.val()?.managerApprovalToken !== token) return null;
+    return { id: applicationId, ...snapshot.val() };
+  }
+
+  static async approvePartApplicationByManager(applicationId: string, token: string, signature: string): Promise<any> {
+    const appRef = ref(database, `partApplications/${applicationId}`);
+    const snapshot = await get(appRef);
+    if (!snapshot.exists() || snapshot.val()?.managerApprovalToken !== token) throw new Error('This approval link is invalid.');
+    const application = snapshot.val();
+    if (application.managerApprovedAt) return { id: applicationId, ...application };
+    const approved = {
+      ...application,
+      status: 'pending',
+      managerApprovedAt: new Date().toISOString(),
+      managerSignature: signature,
+      managerApprovalToken: ''
+    };
+    await set(appRef, approved);
+    return { id: applicationId, ...approved };
   }
 
   static async approvePartApplication(applicationId: string, partCode: string, replacementImageUrl = ''): Promise<string> {
