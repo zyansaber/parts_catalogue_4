@@ -19,13 +19,12 @@ import PartsRequestsApiPage from './pages/parts-requests-api';
 import PartsDeliveryPage from './pages/parts-delivery';
 import PartsCatalogueStandalonePage from './pages/parts-catalogue-standalone';
 import TruckAndChassisManagementPage from './pages/truck-and-chassis-management';
-import ManagerApprovalPage from './pages/manager-approval';
 
 const queryClient = new QueryClient();
 
 const AppLayout = () => {
   const location = useLocation();
-  const isStandalonePage = location.pathname === '/parts-catalogue-standalone' || location.pathname.startsWith('/manager-approval/');
+  const isStandalonePage = location.pathname === '/parts-catalogue-standalone';
 
   if (isStandalonePage) {
     return (
@@ -33,7 +32,6 @@ const AppLayout = () => {
         <div className="p-8">
           <Routes>
             <Route path="/parts-catalogue-standalone" element={<PartsCatalogueStandalonePage />} />
-            <Route path="/manager-approval/:applicationId" element={<ManagerApprovalPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
