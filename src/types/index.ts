@@ -78,6 +78,6 @@ export interface PartApplication {
   part_code?: string;
   rejection_reason?: string;
   requester_email?: string;
-  status: 'awaiting_manager_approval' | 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected';
   created_at: number;
 }

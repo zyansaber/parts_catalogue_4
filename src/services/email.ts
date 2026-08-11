@@ -1,5 +1,5 @@
 export interface ApplicationEmailPayload {
-  emailType: 'submitted' | 'manager_approval_request' | 'part_code_completed' | 'rejected' | 'price_pending_reminder';
+  emailType: 'submitted' | 'part_code_completed' | 'rejected' | 'price_pending_reminder';
   applicationType?: 'single' | 'van_code' | 'price_supplier_change';
   isSalesItem?: boolean;
   vanCodeType?: string;
@@ -30,8 +30,6 @@ export interface ApplicationEmailPayload {
   partCode?: string;
   applicationFileUrl?: string;
   managerApprovalFileUrl?: string;
-  managerName?: string;
-  approvalUrl?: string;
   imageUrl?: string;
   rejectionReason?: string;
   submittedAt?: string;
@@ -53,9 +51,6 @@ const escapeHtml = (value: unknown) => String(value ?? 'N/A')
   .replace(/'/g, '&#39;');
 
 const statusMeta = (payload: ApplicationEmailPayload) => {
-  if (payload.emailType === 'manager_approval_request') {
-    return { label: 'Manager Signature Required', color: '#7c3aed', bg: '#f5f3ff' };
-  }
   if (payload.emailType === 'rejected') {
     return { label: 'Rejected / 已拒绝', color: '#dc2626', bg: '#fef2f2' };
   }
@@ -76,9 +71,7 @@ const applicationTypeLabel = (payload: ApplicationEmailPayload) => payload.appli
 
 const hasEmailValue = (value: unknown) => value !== undefined && value !== null && value !== '';
 
-const hasUsefulValue = (value: unknown) => value !== undefined && value !== null && String(value).trim() !== '' && String(value).trim().toUpperCase() !== 'N/A';
-
-const detailRow = (label: string, value: unknown) => !hasUsefulValue(value) ? '' : `
+const detailRow = (label: string, value: unknown) => `
   <tr>
     <td style="width: 38%; padding: 10px 12px; border-bottom: 1px solid #e5e7eb; color: #6b7280; font-weight: 600;">${escapeHtml(label)}</td>
     <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; color: #111827;">${escapeHtml(value || 'N/A')}</td>
@@ -105,7 +98,7 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
 
         <div style="padding:28px 32px;">
           <p style="margin:0 0 18px; color:#374151; font-size:15px; line-height:1.7;">
-            Please review the application details below.
+            Please review the application details below. / 请查看以下申请详情。
           </p>
 
           <table style="width:100%; border-collapse:collapse; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; font-size:14px;">
@@ -134,15 +127,15 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
             </tbody>
           </table>
 
-          ${hasUsefulValue(payload.specifications) ? `<div style="margin-top:22px;">
+          <div style="margin-top:22px;">
             <h2 style="margin:0 0 10px; font-size:16px; color:#111827;">Specifications / 规格说明</h2>
-            <div style="padding:14px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; white-space:pre-wrap; color:#374151; line-height:1.6;">${escapeHtml(payload.specifications)}</div>
-          </div>` : ''}
+            <div style="padding:14px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; white-space:pre-wrap; color:#374151; line-height:1.6;">${escapeHtml(payload.specifications || 'N/A')}</div>
+          </div>
 
-          ${hasUsefulValue(payload.notes) ? `<div style="margin-top:18px;">
+          <div style="margin-top:18px;">
             <h2 style="margin:0 0 10px; font-size:16px; color:#111827;">Notes / 备注</h2>
-            <div style="padding:14px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; white-space:pre-wrap; color:#374151; line-height:1.6;">${escapeHtml(payload.notes)}</div>
-          </div>` : ''}
+            <div style="padding:14px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; white-space:pre-wrap; color:#374151; line-height:1.6;">${escapeHtml(payload.notes || 'N/A')}</div>
+          </div>
 
           ${payload.rejectionReason ? `
           <div style="margin-top:18px; padding:14px; border-radius:12px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b;">
@@ -150,7 +143,6 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
           </div>` : ''}
 
           <div style="margin-top:22px; display:flex; gap:12px; flex-wrap:wrap;">
-            ${payload.approvalUrl ? `<a href="${escapeHtml(payload.approvalUrl)}" style="display:inline-block; padding:14px 22px; border-radius:10px; background:#7c3aed; color:#ffffff; text-decoration:none; font-size:16px; font-weight:800;">Review and Sign</a>` : ''}
             ${payload.applicationFileUrl ? `<a href="${escapeHtml(payload.applicationFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#2563eb; color:#ffffff; text-decoration:none; font-weight:700;">Open Application File</a>` : ''}
             ${payload.managerApprovalFileUrl ? `<a href="${escapeHtml(payload.managerApprovalFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#7c3aed; color:#ffffff; text-decoration:none; font-weight:700;">Open Manager Approval</a>` : ''}
             ${payload.imageUrl ? `<a href="${escapeHtml(payload.imageUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700;">Open Part Image</a>` : ''}
@@ -166,7 +158,6 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
 };
 
 const buildEmailTitle = (payload: ApplicationEmailPayload) => {
-  if (payload.emailType === 'manager_approval_request') return `Manager Approval Required for ${payload.applicationId}`;
   if (payload.emailType === 'rejected') return `Part Application ${payload.applicationId} Rejected`;
   if (payload.emailType === 'part_code_completed') return `Part Application ${payload.applicationId} Completed`;
   if (payload.emailType === 'price_pending_reminder') return `Prototype Price Pending ${payload.applicationId} Needs Maintenance`;
@@ -177,9 +168,8 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
   const isPriceSupplierChange = payload.applicationType === 'price_supplier_change';
   const lines: string[] = [];
   const addLine = (label: string, value: unknown, always = false) => {
-    if (!hasUsefulValue(value)) return;
     if (!always && isPriceSupplierChange && !hasEmailValue(value)) return;
-    lines.push(`${label}: ${value}`);
+    lines.push(`${label}: ${hasEmailValue(value) ? value : 'N/A'}`);
   };
 
   addLine('Application ID', payload.applicationId, true);
@@ -213,8 +203,6 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
   addLine('Rejection Reason', payload.rejectionReason);
   addLine('Application File', payload.applicationFileUrl);
   addLine('Manager Approval', payload.managerApprovalFileUrl);
-  addLine('Manager', payload.managerName);
-  addLine('Review and Sign', payload.approvalUrl);
   addLine('Image URL', payload.imageUrl);
   addLine('Submitted At', payload.submittedAt || new Date().toISOString(), true);
 
@@ -250,34 +238,32 @@ export class EmailService {
           application_id: payload.applicationId,
           application_type: applicationTypeLabel(payload),
           is_sales_item: payload.isSalesItem ? 'Yes' : 'No',
-          van_code_type: payload.vanCodeType || '',
-          original_supplier: payload.originalSupplier || '',
-          original_price: payload.originalPrice || '',
-          new_supplier: payload.newSupplier || '',
-          new_price: payload.newPrice || '',
+          van_code_type: payload.vanCodeType || 'N/A',
+          original_supplier: payload.originalSupplier || 'N/A',
+          original_price: payload.originalPrice || 'N/A',
+          new_supplier: payload.newSupplier || 'N/A',
+          new_price: payload.newPrice || 'N/A',
           supplier: payload.supplier,
           supplier_sap_code: payload.supplierSapCode,
-          supplier_part_code: payload.supplierPartCode || '',
-          wholesale_price: payload.wholesalePrice || '',
-          retail_price: payload.retailPrice || '',
-          standard_price: payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : ''),
+          supplier_part_code: payload.supplierPartCode || 'N/A',
+          wholesale_price: payload.wholesalePrice || 'N/A',
+          retail_price: payload.retailPrice || 'N/A',
+          standard_price: payload.standardPrice || (payload.isPrototypePricePending ? 'Prototype price pending' : 'N/A'),
           is_prototype_price_pending: payload.isPrototypePricePending ? 'Yes' : 'No',
-          estimated_price: payload.estimatedPrice || '',
-          part_name: payload.partName || '',
-          price_effective_date: payload.priceEffectiveDate || '',
-          leading_time: payload.leadingTime || '',
-          unit: payload.unit || '',
+          estimated_price: payload.estimatedPrice || 'N/A',
+          part_name: payload.partName || 'N/A',
+          price_effective_date: payload.priceEffectiveDate || 'N/A',
+          leading_time: payload.leadingTime || 'N/A',
+          unit: payload.unit || 'N/A',
           is_pack: payload.isPack ? 'Yes' : 'No',
-          pack_quantity: payload.isPack ? payload.packQuantity || '' : '',
-          specifications: payload.specifications || '',
-          notes: payload.notes || '',
+          pack_quantity: payload.isPack ? payload.packQuantity || 'N/A' : 'N/A',
+          specifications: payload.specifications || 'N/A',
+          notes: payload.notes || 'N/A',
           part_code: payload.partCode || 'Pending',
-          application_file_url: payload.applicationFileUrl || '',
-          manager_approval_file_url: payload.managerApprovalFileUrl || '',
-          manager_name: payload.managerName || '',
-          approval_url: payload.approvalUrl || '',
-          image_url: payload.imageUrl || '',
-          rejection_reason: payload.rejectionReason || '',
+          application_file_url: payload.applicationFileUrl || 'N/A',
+          manager_approval_file_url: payload.managerApprovalFileUrl || 'N/A',
+          image_url: payload.imageUrl || 'N/A',
+          rejection_reason: payload.rejectionReason || 'N/A',
           submitted_at: payload.submittedAt || new Date().toISOString(),
           subject_prefix: payload.subjectPrefix || 'Part Application',
           subject: `${payload.subjectPrefix || 'Part Application'} - ${buildEmailTitle(payload)}`,
