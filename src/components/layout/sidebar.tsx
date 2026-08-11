@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Package, FileText, PlusCircle, Settings, BarChart3, Camera, Truck } from 'lucide-react';
 import { getLang, setLang, t } from '@/lib/i18n';
@@ -29,6 +29,7 @@ const LANG_TARGET = {
 
 export function Sidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [lang, setLangState] = useState(getLang());
 
   useEffect(() => {
@@ -39,12 +40,19 @@ export function Sidebar() {
 
   const target = LANG_TARGET[lang as keyof typeof LANG_TARGET];
   const nextLang = lang === 'zh' ? 'en' : 'zh';
+  const languagePrefix = `/${lang}`;
+  const currentPage = location.pathname.replace(/^\/(en|zh)/, '') || '/';
+
+  const switchLanguage = () => {
+    setLang(nextLang);
+    navigate(`/${nextLang}${currentPage === '/' ? '' : currentPage}`);
+  };
 
   return (
     <div className="flex h-screen w-64 flex-col bg-gray-900">
       {/* Logo */}
       <div className="flex h-16 shrink-0 items-center px-6">
-        <Link to="/" className="flex items-center space-x-3">
+        <Link to={languagePrefix} className="flex items-center space-x-3">
           <Package className="h-8 w-8 text-blue-400" />
           <span className="text-xl font-bold text-white">Parts System / 零件系统</span>
         </Link>
@@ -54,12 +62,13 @@ export function Sidebar() {
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {navigation.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.href;
+          const localizedHref = item.href === '/' ? languagePrefix : `${languagePrefix}${item.href}`;
+          const isActive = location.pathname === localizedHref;
 
           return (
             <Link
               key={item.key}
-              to={item.href}
+              to={localizedHref}
               className={cn(
                 'group flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors',
                 isActive
@@ -78,7 +87,7 @@ export function Sidebar() {
       <div className="shrink-0 border-t border-gray-700 p-4 space-y-3">
         {/* Language switcher — shows TARGET language with flag */}
         <button
-          onClick={() => setLang(nextLang)}
+          onClick={switchLanguage}
           className={cn(
             'w-full flex items-center gap-3 rounded-lg px-3 py-2.5',
             'bg-gray-800 hover:bg-gray-700 active:bg-gray-600',

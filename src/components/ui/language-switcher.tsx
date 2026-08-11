@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getLang, setLang, type Lang } from '@/lib/i18n';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 export function LanguageSwitcher() {
   const [lang, setLangState] = useState<Lang>(getLang());
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleLanguageChange = () => {
@@ -18,6 +21,8 @@ export function LanguageSwitcher() {
     const newLang: Lang = lang === 'zh' ? 'en' : 'zh';
     setLang(newLang);
     setLangState(newLang);
+    const currentPage = location.pathname.replace(/^\/(en|zh)/, '') || '/';
+    navigate(`/${newLang}${currentPage === '/' ? '' : currentPage}`);
   };
 
   return (
