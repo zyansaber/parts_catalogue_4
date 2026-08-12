@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Eye, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { Eye, Package, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -14,6 +13,8 @@ import { Part } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
 import { getLang, resolvePartDescription, t, type Lang } from '@/lib/i18n';
+import { searchPartsLocally } from '@/lib/part-search';
+import { PartSearchAutocomplete } from '@/components/part-search-autocomplete';
 
 export default function PartsCataloguePage() {
   const [allParts, setAllParts] = useState<Record<string, Part>>({});
@@ -33,20 +34,13 @@ export default function PartsCataloguePage() {
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
   useEffect(() => { const fn = () => setLang(getLang()); window.addEventListener('language-change', fn); return () => window.removeEventListener('language-change', fn); }, []);
 
-  // Load initial data and handle search
+  // Load the catalogue once; fuzzy searching is performed locally for instant feedback.
   useEffect(() => {
     const load = async () => {
-      if (debouncedSearchTerm) {
-        setIsSearching(true);
-      } else {
-        setLoading(true);
-      }
+      setLoading(true);
       
       try {
-        // Always search the entire database - use getAllParts for complete data
-        const partsData = debouncedSearchTerm 
-          ? await FirebaseService.searchParts(debouncedSearchTerm, 10000) // Increase limit for search
-          : await FirebaseService.getAllParts(); // Get all parts when no search term
+        const partsData = await FirebaseService.getAllParts();
         setAllParts(partsData);
       } catch (error) {
         console.error('Error loading parts:', error);
@@ -56,7 +50,7 @@ export default function PartsCataloguePage() {
       }
     };
     load();
-  }, [debouncedSearchTerm]);
+  }, []);
 
   // Reset to page 1 when search term changes
   useEffect(() => {
@@ -74,7 +68,10 @@ export default function PartsCataloguePage() {
   }, [allParts]);
 
   const filteredAndSortedParts = useMemo(() => {
-    const filtered = Object.entries(allParts).filter(([material, part]) => {
+    const fuzzyMatches = debouncedSearchTerm.trim()
+      ? searchPartsLocally(allParts, debouncedSearchTerm).map(({ material, part }) => [material, part] as [string, Part])
+      : Object.entries(allParts);
+    const filtered = fuzzyMatches.filter(([, part]) => {
       const isHidden = part.show_in_catalogue === false;
       if (isHidden) return false;
       
@@ -100,7 +97,7 @@ export default function PartsCataloguePage() {
     });
 
     return filtered;
-  }, [allParts, selectedSupplier, sortBy, showInStockOnly]);
+  }, [allParts, debouncedSearchTerm, selectedSupplier, sortBy, showInStockOnly]);
 
   // Handle pagination
   useEffect(() => {
@@ -142,20 +139,14 @@ export default function PartsCataloguePage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="md:col-span-2">
               <label className="text-sm font-medium mb-2 block">{t(lang, 'searchParts')}</label>
-              <div className="relative">
-                <Search className="h-4 w-4 absolute left-3 top-3 text-gray-400" />
-                <Input
+              <PartSearchAutocomplete
+                  parts={allParts}
                   placeholder={t(lang, 'searchPlaceholder')}
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
+                  onChange={setSearchTerm}
+                  lang={lang}
+                  loading={isSearching}
                 />
-                {isSearching && (
-                  <div className="absolute right-3 top-3">
-                    <LoadingSpinner size="sm" />
-                  </div>
-                )}
-              </div>
             </div>
             
             <div>
