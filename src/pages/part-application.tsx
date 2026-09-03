@@ -97,7 +97,6 @@ interface VanCodeApplicationRow {
 interface BulkApplicationRow {
   id: string;
   partName: string;
-  partCode: string;
   department: string;
   priority: string;
   purchasingOrganization: string;
@@ -668,13 +667,13 @@ export default function PartApplicationPage() {
     return false;
   };
 
-  const bulkHeaders = ['Part Name *', 'Part Code (Optional)', 'Department (Optional)', 'Priority (Optional)', 'Purchasing Organization (Optional)', 'Sales Item? (Optional)', 'Supplier *', 'Supplier SAP Code *', 'Supplier Part Code (Optional)', 'Standard Price *', 'Price Effective Date *', 'Leading Time *', 'Unit *', 'Minimum Order Quantity *', 'Wholesale Price (Required for Sales Item)', 'Retail Price (Required for Sales Item)', 'Prototype Price Pending? (Optional)', 'Estimated Price (Required if Prototype Price Pending)', 'Pack? (Optional)', 'Pack Quantity (Required if Pack)', 'Specifications *', 'Notes (Optional)'];
-  const bulkFields: Array<keyof Omit<BulkApplicationRow, 'id'>> = ['partName', 'partCode', 'department', 'priority', 'purchasingOrganization', 'isSalesItem', 'supplier', 'supplierSapCode', 'supplierPartCode', 'standardPrice', 'priceEffectiveDate', 'leadingTime', 'unit', 'minimumOrderQuantity', 'wholesalePrice', 'retailPrice', 'isPrototypePricePending', 'estimatedPrice', 'isPack', 'packQuantity', 'specifications', 'notes'];
+  const bulkHeaders = ['Part Name *', 'Department (Optional)', 'Priority (Optional)', 'Purchasing Organization (Optional)', 'Sales Item? (Optional)', 'Supplier *', 'Supplier SAP Code *', 'Supplier Part Code (Optional)', 'Standard Price *', 'Price Effective Date *', 'Leading Time *', 'Unit *', 'Minimum Order Quantity *', 'Wholesale Price (Required for Sales Item)', 'Retail Price (Required for Sales Item)', 'Prototype Price Pending? (Optional)', 'Estimated Price (Required if Prototype Price Pending)', 'Pack? (Optional)', 'Pack Quantity (Required if Pack)', 'Specifications *', 'Notes (Optional)'];
+  const bulkFields: Array<keyof Omit<BulkApplicationRow, 'id'>> = ['partName', 'department', 'priority', 'purchasingOrganization', 'isSalesItem', 'supplier', 'supplierSapCode', 'supplierPartCode', 'standardPrice', 'priceEffectiveDate', 'leadingTime', 'unit', 'minimumOrderQuantity', 'wholesalePrice', 'retailPrice', 'isPrototypePricePending', 'estimatedPrice', 'isPack', 'packQuantity', 'specifications', 'notes'];
 
   const downloadBulkTemplate = () => {
     const rows = [
       bulkHeaders,
-      ['Example part name', '', 'Parts', 'medium', 'Snowy River Pty Ltd', 'No', 'Example Supplier', '100001', 'SUP-001', '12.50', todayDateString(), '14 days', 'EA', '1', '', '', 'No', '', 'No', '', 'Part specifications', 'Optional notes']
+      ['Example part name', 'Parts', 'medium', 'Snowy River Pty Ltd', 'No', 'Example Supplier', '100001', 'SUP-001', '12.50', todayDateString(), '14 days', 'EA', '1', '', '', 'No', '', 'No', '', 'Part specifications', 'Optional notes']
     ];
     const xmlRows = rows.map((row) => `<Row>${row.map((cell) => `<Cell><Data ss:Type="String">${String(cell).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Data></Cell>`).join('')}</Row>`).join('');
     const workbook = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Bulk Applications"><Table>${xmlRows}</Table></Worksheet></Workbook>`;
@@ -699,14 +698,12 @@ export default function PartApplicationPage() {
       }
       const headerIndex = rows.findIndex((row) => row[0]?.trim() === 'Part Name *');
       if (headerIndex < 0) throw new Error('The template header row was not found. Please use the downloaded template.');
-      const hasPartCodeColumn = rows[headerIndex][1]?.trim() === 'Part Code (Optional)';
-      const legacyColumn = (row: string[], index: number) => row[index + (hasPartCodeColumn && index > 0 ? 1 : 0)]?.trim() || '';
       const parsedRows = rows.slice(headerIndex + 1).filter((row) => row.some((cell) => cell.trim())).map((row) => ({
-        id: crypto.randomUUID(), partName: legacyColumn(row, 0), partCode: hasPartCodeColumn ? row[1]?.trim() || '' : '', department: legacyColumn(row, 1), priority: legacyColumn(row, 2), purchasingOrganization: legacyColumn(row, 3), isSalesItem: legacyColumn(row, 4),
-        supplier: legacyColumn(row, 5), supplierSapCode: legacyColumn(row, 6), supplierPartCode: legacyColumn(row, 7), standardPrice: legacyColumn(row, 8),
-        priceEffectiveDate: legacyColumn(row, 9), leadingTime: legacyColumn(row, 10), unit: legacyColumn(row, 11), minimumOrderQuantity: legacyColumn(row, 12),
-        wholesalePrice: legacyColumn(row, 13), retailPrice: legacyColumn(row, 14), isPrototypePricePending: legacyColumn(row, 15), estimatedPrice: legacyColumn(row, 16),
-        isPack: legacyColumn(row, 17), packQuantity: legacyColumn(row, 18), specifications: legacyColumn(row, 19), notes: legacyColumn(row, 20)
+        id: crypto.randomUUID(), partName: row[0]?.trim() || '', department: row[1]?.trim() || '', priority: row[2]?.trim() || '', purchasingOrganization: row[3]?.trim() || '', isSalesItem: row[4]?.trim() || '',
+        supplier: row[5]?.trim() || '', supplierSapCode: row[6]?.trim() || '', supplierPartCode: row[7]?.trim() || '', standardPrice: row[8]?.trim() || '',
+        priceEffectiveDate: row[9]?.trim() || '', leadingTime: row[10]?.trim() || '', unit: row[11]?.trim() || '', minimumOrderQuantity: row[12]?.trim() || '',
+        wholesalePrice: row[13]?.trim() || '', retailPrice: row[14]?.trim() || '', isPrototypePricePending: row[15]?.trim() || '', estimatedPrice: row[16]?.trim() || '',
+        isPack: row[17]?.trim() || '', packQuantity: row[18]?.trim() || '', specifications: row[19]?.trim() || '', notes: row[20]?.trim() || ''
       }));
       if (!parsedRows.length) throw new Error('No application rows were found in the uploaded file.');
       setBulkRows(parsedRows);
@@ -734,7 +731,7 @@ export default function PartApplicationPage() {
           requesterEmail: requester.email, managerName: requester.managerName, managerEmail: requester.managerEmail,
           managerApprovalRequired: true, managerApprovalToken: crypto.randomUUID(), department: row.department, priority: (['low', 'medium', 'high'].includes(row.priority.toLowerCase()) ? row.priority.toLowerCase() : 'medium') as 'low' | 'medium' | 'high',
           specifications: row.specifications, supplier: row.supplier, supplierSapCode: row.supplierSapCode,
-          supplierPartCode: row.supplierPartCode, standardPrice: row.standardPrice, partName: row.partName, partCode: row.partCode,
+          supplierPartCode: row.supplierPartCode, standardPrice: row.standardPrice, partName: row.partName,
           priceEffectiveDate: row.priceEffectiveDate, leadingTime: row.leadingTime, unit: row.unit, minimumOrderQuantity: row.minimumOrderQuantity,
           notes: row.notes, submittedAt: new Date().toISOString(), status: 'awaiting_manager_approval', applicationType: 'single',
           purchasingOrganization: row.purchasingOrganization || 'Snowy River Pty Ltd', isSalesItem: yes(row.isSalesItem), isPrototypePricePending: yes(row.isPrototypePricePending), estimatedPrice: row.estimatedPrice,
