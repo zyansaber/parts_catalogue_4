@@ -1348,36 +1348,6 @@ export default function PartApplicationPage() {
     }
   };
 
-  const mingHuAwaitingApplications = applications.filter((application) => {
-    const requesterName = application.requesterName || application.requestedBy || '';
-    return application.status === 'awaiting_manager_approval' && requesterName.trim().toLocaleLowerCase() === 'ming hu';
-  });
-
-  const handleBulkApproveMingHu = async () => {
-    const count = mingHuAwaitingApplications.length;
-    if (count === 0) {
-      showMessage('error', 'There are no applications from ming hu awaiting manager approval.');
-      return;
-    }
-
-    if (!window.confirm(`Approve all ${count} applications requested by ming hu?`)) return;
-
-    setIsSubmitting(true);
-    try {
-      await FirebaseService.bulkApprovePartApplicationsByManager(
-        mingHuAwaitingApplications.map((application) => application.id),
-        'Bulk approved from Application List',
-      );
-      await loadApplications();
-      showMessage('success', `${count} applications requested by ming hu were approved.`);
-    } catch (error) {
-      console.error('Error bulk approving ming hu applications:', error);
-      showMessage('error', 'Failed to approve applications requested by ming hu.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleReject = async () => {
     if (!rejectDialog.application) {
       return;
@@ -2237,20 +2207,6 @@ export default function PartApplicationPage() {
                   <p className="text-xl font-bold text-green-700">{approvedApplications.length}</p>
                 </button>
               </div>
-
-              {mingHuAwaitingApplications.length > 0 && (
-                <Button
-                  type="button"
-                  onClick={handleBulkApproveMingHu}
-                  disabled={isSubmitting}
-                  className="mb-4 w-full bg-violet-700 hover:bg-violet-800"
-                >
-                  {isSubmitting ? <LoadingSpinner size="sm" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-                  <span className={isSubmitting ? 'ml-2' : ''}>
-                    Approve all {mingHuAwaitingApplications.length} requested by ming hu
-                  </span>
-                </Button>
-              )}
 
               {loading ? (
                 <div className="text-center py-8">
