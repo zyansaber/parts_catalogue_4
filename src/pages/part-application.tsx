@@ -741,11 +741,18 @@ export default function PartApplicationPage() {
         await FirebaseService.savePartApplication(application);
         created.push(application);
       }
-      await Promise.all(created.map((application) => sendManagerApprovalEmail(application, `${window.location.origin}/manager-approval/${encodeURIComponent(application.id)}?token=${encodeURIComponent(application.managerApprovalToken || '')}`)));
+      const emailResults = await Promise.allSettled(created.map((application) => sendManagerApprovalEmail(application, `${window.location.origin}/manager-approval/${encodeURIComponent(application.id)}?token=${encodeURIComponent(application.managerApprovalToken || '')}`)));
+      const failedEmailCount = emailResults.filter((result) => result.status === 'rejected').length;
+      emailResults.forEach((result, index) => {
+        if (result.status === 'rejected') console.error(`Bulk application ${created[index].id} manager email failed:`, result.reason);
+      });
       setBulkRows([]);
       setBulkImages({});
       await loadApplications();
-      showMessage('success', `${created.length} applications were sent for electronic manager approval.`);
+      showMessage(
+        failedEmailCount ? 'error' : 'success',
+        `${created.length} applications were submitted and ${created.length - failedEmailCount} manager approval emails were sent.${failedEmailCount ? ` ${failedEmailCount} email(s) failed; the saved applications were not duplicated.` : ''}`,
+      );
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : 'Bulk applications could not be submitted.');
     } finally { setIsSubmitting(false); }
@@ -1343,6 +1350,117 @@ export default function PartApplicationPage() {
     } catch (error) {
       console.error('Error approving application:', error);
       showMessage('error', 'Failed to approve application');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const mingHuAwaitingApplications = applications.filter((application) => {
+    const requesterName = application.requesterName || application.requestedBy || '';
+    return application.status === 'awaiting_manager_approval' && requesterName.trim().toLocaleLowerCase() === 'ming hu';
+  });
+
+  const mingHuPendingApplications = applications.filter((application) => {
+    const requesterName = application.requesterName || application.requestedBy || '';
+    return application.status === 'pending' && requesterName.trim().toLocaleLowerCase() === 'ming hu';
+  });
+
+  const downloadMingHuPendingList = () => {
+    const columns: Array<[string, (application: PartApplication) => unknown]> = [
+      ['Application ID', (application) => application.id],
+      ['Requested By', (application) => application.requesterName || application.requestedBy],
+      ['Submitted At', (application) => application.submittedAt],
+      ['Part Name', (application) => application.partName],
+      ['Supplier', (application) => application.supplier],
+      ['Supplier SAP Code', (application) => application.supplierSapCode],
+      ['Supplier Part Code', (application) => application.supplierPartCode],
+      ['Standard Price', (application) => application.standardPrice],
+      ['Price Effective Date', (application) => application.priceEffectiveDate],
+      ['Status', (application) => application.status],
+      ['Part Code', () => ''],
+    ];
+    const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      columns.map(([heading]) => csvCell(heading)).join(','),
+      ...mingHuPendingApplications.map((application) => columns.map(([, value]) => csvCell(value(application))).join(',')),
+    ].join('\r\n');
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ming-hu-pending-applications-${todayDateString()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const uploadMingHuCompletedList = async (file: File) => {
+    try {
+      const text = await file.text();
+      const rows = text.split(/\r?\n/).filter((row) => row.trim()).map(parseCsvLine);
+      const headers = rows[0]?.map((header) => header.replace(/^\uFEFF/, '').trim().toLocaleLowerCase()) || [];
+      const applicationIdIndex = headers.indexOf('application id');
+      const partCodeIndex = headers.indexOf('part code');
+      if (applicationIdIndex < 0 || partCodeIndex < 0) {
+        throw new Error('The file must be the downloaded ming hu pending CSV with Application ID and Part Code columns.');
+      }
+
+      const pendingById = new Map(mingHuPendingApplications.map((application) => [application.id, application]));
+      const completedRows = rows.slice(1).map((row, index) => ({
+        rowNumber: index + 2,
+        applicationId: row[applicationIdIndex]?.trim() || '',
+        partCode: row[partCodeIndex]?.trim() || '',
+      })).filter((row) => row.applicationId || row.partCode);
+      const invalidRow = completedRows.find((row) => !row.applicationId || !row.partCode || !pendingById.has(row.applicationId));
+      if (invalidRow) throw new Error(`Row ${invalidRow.rowNumber} has a missing Part Code or is not a pending ming hu application.`);
+      if (completedRows.length === 0) throw new Error('No completed Part Code rows were found.');
+
+      const duplicatePartCode = completedRows.find((row, index) => completedRows.findIndex((candidate) => candidate.partCode.toLocaleLowerCase() === row.partCode.toLocaleLowerCase()) !== index);
+      if (duplicatePartCode) throw new Error(`Part Code ${duplicatePartCode.partCode} appears more than once.`);
+      if (!window.confirm(`Complete ${completedRows.length} applications using the uploaded Part Codes?`)) return;
+
+      setIsSubmitting(true);
+      let failedEmailCount = 0;
+      for (const row of completedRows) {
+        const application = pendingById.get(row.applicationId)!;
+        const partImageUrl = await FirebaseService.approvePartApplication(application.id, row.partCode);
+        try {
+          await sendCompletionEmail(application, row.partCode, partImageUrl || application.imageUrl);
+        } catch (emailError) {
+          failedEmailCount += 1;
+          console.error(`Application ${application.id} completion email failed:`, emailError);
+        }
+      }
+      await loadApplications();
+      showMessage(
+        failedEmailCount ? 'error' : 'success',
+        `${completedRows.length} applications were completed.${failedEmailCount ? ` ${failedEmailCount} completion email(s) failed.` : ' Completion emails were sent.'}`,
+      );
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : 'The completed list could not be uploaded.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBulkApproveMingHu = async () => {
+    const count = mingHuAwaitingApplications.length;
+    if (count === 0) {
+      showMessage('error', 'There are no applications from ming hu awaiting manager approval.');
+      return;
+    }
+
+    if (!window.confirm(`Approve all ${count} applications requested by ming hu?`)) return;
+
+    setIsSubmitting(true);
+    try {
+      await FirebaseService.bulkApprovePartApplicationsByManager(
+        mingHuAwaitingApplications.map((application) => application.id),
+        'Bulk approved from Application List',
+      );
+      await loadApplications();
+      showMessage('success', `${count} applications requested by ming hu were approved.`);
+    } catch (error) {
+      console.error('Error bulk approving ming hu applications:', error);
+      showMessage('error', 'Failed to approve applications requested by ming hu.');
     } finally {
       setIsSubmitting(false);
     }
@@ -2207,6 +2325,34 @@ export default function PartApplicationPage() {
                   <p className="text-xl font-bold text-green-700">{approvedApplications.length}</p>
                 </button>
               </div>
+
+              {mingHuAwaitingApplications.length > 0 && (
+                <Button
+                  type="button"
+                  onClick={handleBulkApproveMingHu}
+                  disabled={isSubmitting}
+                  className="mb-4 w-full bg-violet-700 hover:bg-violet-800"
+                >
+                  {isSubmitting ? <LoadingSpinner size="sm" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                  <span className={isSubmitting ? 'ml-2' : ''}>
+                    Approve all {mingHuAwaitingApplications.length} requested by ming hu
+                  </span>
+                </Button>
+              )}
+
+              {mingHuPendingApplications.length > 0 && (
+                <div className="mb-4 grid gap-2 sm:grid-cols-2">
+                  <Button type="button" variant="outline" onClick={downloadMingHuPendingList} className="border-blue-300 text-blue-700 hover:bg-blue-50">
+                    <Download className="mr-2 h-4 w-4" />
+                    Download pending list ({mingHuPendingApplications.length})
+                  </Button>
+                  <Label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md border border-green-300 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50">
+                    <Upload className="mr-2 h-4 w-4" />
+                    Upload completed list
+                    <Input type="file" accept=".csv,text/csv" className="hidden" disabled={isSubmitting} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadMingHuCompletedList(file); event.currentTarget.value = ''; }} />
+                  </Label>
+                </div>
+              )}
 
               {loading ? (
                 <div className="text-center py-8">
