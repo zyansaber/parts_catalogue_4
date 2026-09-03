@@ -97,6 +97,7 @@ interface VanCodeApplicationRow {
 interface BulkApplicationRow {
   id: string;
   partName: string;
+  partCode: string;
   department: string;
   priority: string;
   purchasingOrganization: string;
@@ -667,13 +668,37 @@ export default function PartApplicationPage() {
     return false;
   };
 
-  const bulkHeaders = ['Part Name *', 'Department (Optional)', 'Priority (Optional)', 'Purchasing Organization (Optional)', 'Sales Item? (Optional)', 'Supplier *', 'Supplier SAP Code *', 'Supplier Part Code (Optional)', 'Standard Price *', 'Price Effective Date *', 'Leading Time *', 'Unit *', 'Minimum Order Quantity *', 'Wholesale Price (Required for Sales Item)', 'Retail Price (Required for Sales Item)', 'Prototype Price Pending? (Optional)', 'Estimated Price (Required if Prototype Price Pending)', 'Pack? (Optional)', 'Pack Quantity (Required if Pack)', 'Specifications *', 'Notes (Optional)'];
-  const bulkFields: Array<keyof Omit<BulkApplicationRow, 'id'>> = ['partName', 'department', 'priority', 'purchasingOrganization', 'isSalesItem', 'supplier', 'supplierSapCode', 'supplierPartCode', 'standardPrice', 'priceEffectiveDate', 'leadingTime', 'unit', 'minimumOrderQuantity', 'wholesalePrice', 'retailPrice', 'isPrototypePricePending', 'estimatedPrice', 'isPack', 'packQuantity', 'specifications', 'notes'];
+  const bulkColumns: Array<{ field: keyof Omit<BulkApplicationRow, 'id'>; header: string; example: string }> = [
+    { field: 'partName', header: 'Part Name *', example: 'Example part name' },
+    { field: 'partCode', header: 'Part Code (Optional)', example: '' },
+    { field: 'department', header: 'Department (Optional)', example: 'Parts' },
+    { field: 'priority', header: 'Priority (Optional)', example: 'medium' },
+    { field: 'purchasingOrganization', header: 'Purchasing Organization (Optional)', example: 'Snowy River Pty Ltd' },
+    { field: 'isSalesItem', header: 'Sales Item? (Optional)', example: 'No' },
+    { field: 'supplier', header: 'Supplier *', example: 'Example Supplier' },
+    { field: 'supplierSapCode', header: 'Supplier SAP Code *', example: '100001' },
+    { field: 'supplierPartCode', header: 'Supplier Part Code (Optional)', example: 'SUP-001' },
+    { field: 'standardPrice', header: 'Standard Price *', example: '12.50' },
+    { field: 'priceEffectiveDate', header: 'Price Effective Date *', example: todayDateString() },
+    { field: 'leadingTime', header: 'Leading Time *', example: '14 days' },
+    { field: 'unit', header: 'Unit *', example: 'EA' },
+    { field: 'minimumOrderQuantity', header: 'Minimum Order Quantity *', example: '1' },
+    { field: 'wholesalePrice', header: 'Wholesale Price (Required for Sales Item)', example: '' },
+    { field: 'retailPrice', header: 'Retail Price (Required for Sales Item)', example: '' },
+    { field: 'isPrototypePricePending', header: 'Prototype Price Pending? (Optional)', example: 'No' },
+    { field: 'estimatedPrice', header: 'Estimated Price (Required if Prototype Price Pending)', example: '' },
+    { field: 'isPack', header: 'Pack? (Optional)', example: 'No' },
+    { field: 'packQuantity', header: 'Pack Quantity (Required if Pack)', example: '' },
+    { field: 'specifications', header: 'Specifications *', example: 'Part specifications' },
+    { field: 'notes', header: 'Notes (Optional)', example: 'Optional notes' },
+  ];
+  const bulkHeaders = bulkColumns.map((column) => column.header);
+  const bulkFields = bulkColumns.map((column) => column.field);
 
   const downloadBulkTemplate = () => {
     const rows = [
       bulkHeaders,
-      ['Example part name', 'Parts', 'medium', 'Snowy River Pty Ltd', 'No', 'Example Supplier', '100001', 'SUP-001', '12.50', todayDateString(), '14 days', 'EA', '1', '', '', 'No', '', 'No', '', 'Part specifications', 'Optional notes']
+      bulkColumns.map((column) => column.example),
     ];
     const xmlRows = rows.map((row) => `<Row>${row.map((cell) => `<Cell><Data ss:Type="String">${String(cell).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Data></Cell>`).join('')}</Row>`).join('');
     const workbook = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Bulk Applications"><Table>${xmlRows}</Table></Worksheet></Workbook>`;
@@ -690,21 +715,27 @@ export default function PartApplicationPage() {
       let rows: string[][];
       if (text.trimStart().startsWith('<?xml') || text.includes('<Workbook')) {
         const documentNode = new DOMParser().parseFromString(text, 'application/xml');
-        rows = Array.from(documentNode.getElementsByTagNameNS('*', 'Row')).map((row) =>
-          Array.from(row.getElementsByTagNameNS('*', 'Cell')).map((cell) => cell.textContent?.trim() || '')
-        );
+        rows = Array.from(documentNode.getElementsByTagNameNS('*', 'Row')).map((row) => {
+          const values: string[] = [];
+          let nextIndex = 0;
+          Array.from(row.getElementsByTagNameNS('*', 'Cell')).forEach((cell) => {
+            const excelIndex = Number(cell.getAttributeNS('urn:schemas-microsoft-com:office:spreadsheet', 'Index') || cell.getAttribute('ss:Index'));
+            const index = Number.isFinite(excelIndex) && excelIndex > 0 ? excelIndex - 1 : nextIndex;
+            values[index] = cell.textContent?.trim() || '';
+            nextIndex = index + 1;
+          });
+          return values;
+        });
       } else {
         rows = text.split(/\r?\n/).filter(Boolean).map(parseCsvLine);
       }
       const headerIndex = rows.findIndex((row) => row[0]?.trim() === 'Part Name *');
       if (headerIndex < 0) throw new Error('The template header row was not found. Please use the downloaded template.');
-      const parsedRows = rows.slice(headerIndex + 1).filter((row) => row.some((cell) => cell.trim())).map((row) => ({
-        id: crypto.randomUUID(), partName: row[0]?.trim() || '', department: row[1]?.trim() || '', priority: row[2]?.trim() || '', purchasingOrganization: row[3]?.trim() || '', isSalesItem: row[4]?.trim() || '',
-        supplier: row[5]?.trim() || '', supplierSapCode: row[6]?.trim() || '', supplierPartCode: row[7]?.trim() || '', standardPrice: row[8]?.trim() || '',
-        priceEffectiveDate: row[9]?.trim() || '', leadingTime: row[10]?.trim() || '', unit: row[11]?.trim() || '', minimumOrderQuantity: row[12]?.trim() || '',
-        wholesalePrice: row[13]?.trim() || '', retailPrice: row[14]?.trim() || '', isPrototypePricePending: row[15]?.trim() || '', estimatedPrice: row[16]?.trim() || '',
-        isPack: row[17]?.trim() || '', packQuantity: row[18]?.trim() || '', specifications: row[19]?.trim() || '', notes: row[20]?.trim() || ''
-      }));
+      const uploadedHeaders = rows[headerIndex].map((header) => header?.trim() || '');
+      const parsedRows = rows.slice(headerIndex + 1).filter((row) => row.some((cell) => cell?.trim())).map((row) => ({
+        id: crypto.randomUUID(),
+        ...Object.fromEntries(bulkColumns.map((column) => [column.field, row[uploadedHeaders.indexOf(column.header)]?.trim() || ''])),
+      } as BulkApplicationRow));
       if (!parsedRows.length) throw new Error('No application rows were found in the uploaded file.');
       setBulkRows(parsedRows);
       showMessage('success', `${parsedRows.length} applications loaded. Review the table before submitting.`);
@@ -731,7 +762,7 @@ export default function PartApplicationPage() {
           requesterEmail: requester.email, managerName: requester.managerName, managerEmail: requester.managerEmail,
           managerApprovalRequired: true, managerApprovalToken: crypto.randomUUID(), department: row.department, priority: (['low', 'medium', 'high'].includes(row.priority.toLowerCase()) ? row.priority.toLowerCase() : 'medium') as 'low' | 'medium' | 'high',
           specifications: row.specifications, supplier: row.supplier, supplierSapCode: row.supplierSapCode,
-          supplierPartCode: row.supplierPartCode, standardPrice: row.standardPrice, partName: row.partName,
+          supplierPartCode: row.supplierPartCode, standardPrice: row.standardPrice, partName: row.partName, partCode: row.partCode,
           priceEffectiveDate: row.priceEffectiveDate, leadingTime: row.leadingTime, unit: row.unit, minimumOrderQuantity: row.minimumOrderQuantity,
           notes: row.notes, submittedAt: new Date().toISOString(), status: 'awaiting_manager_approval', applicationType: 'single',
           purchasingOrganization: row.purchasingOrganization || 'Snowy River Pty Ltd', isSalesItem: yes(row.isSalesItem), isPrototypePricePending: yes(row.isPrototypePricePending), estimatedPrice: row.estimatedPrice,
@@ -741,11 +772,18 @@ export default function PartApplicationPage() {
         await FirebaseService.savePartApplication(application);
         created.push(application);
       }
-      await Promise.all(created.map((application) => sendManagerApprovalEmail(application, `${window.location.origin}/manager-approval/${encodeURIComponent(application.id)}?token=${encodeURIComponent(application.managerApprovalToken || '')}`)));
+      const emailResults = await Promise.allSettled(created.map((application) => sendManagerApprovalEmail(application, `${window.location.origin}/manager-approval/${encodeURIComponent(application.id)}?token=${encodeURIComponent(application.managerApprovalToken || '')}`)));
+      const failedEmailCount = emailResults.filter((result) => result.status === 'rejected').length;
+      emailResults.forEach((result, index) => {
+        if (result.status === 'rejected') console.error(`Bulk application ${created[index].id} manager email failed:`, result.reason);
+      });
       setBulkRows([]);
       setBulkImages({});
       await loadApplications();
-      showMessage('success', `${created.length} applications were sent for electronic manager approval.`);
+      showMessage(
+        failedEmailCount ? 'error' : 'success',
+        `${created.length} applications were submitted and ${created.length - failedEmailCount} manager approval emails were sent.${failedEmailCount ? ` ${failedEmailCount} email(s) failed; the saved applications were not duplicated.` : ''}`,
+      );
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : 'Bulk applications could not be submitted.');
     } finally { setIsSubmitting(false); }
@@ -1343,6 +1381,117 @@ export default function PartApplicationPage() {
     } catch (error) {
       console.error('Error approving application:', error);
       showMessage('error', 'Failed to approve application');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const mingHuAwaitingApplications = applications.filter((application) => {
+    const requesterName = application.requesterName || application.requestedBy || '';
+    return application.status === 'awaiting_manager_approval' && requesterName.trim().toLocaleLowerCase() === 'ming hu';
+  });
+
+  const mingHuPendingApplications = applications.filter((application) => {
+    const requesterName = application.requesterName || application.requestedBy || '';
+    return application.status === 'pending' && requesterName.trim().toLocaleLowerCase() === 'ming hu';
+  });
+
+  const downloadMingHuPendingList = () => {
+    const columns: Array<[string, (application: PartApplication) => unknown]> = [
+      ['Application ID', (application) => application.id],
+      ['Requested By', (application) => application.requesterName || application.requestedBy],
+      ['Submitted At', (application) => application.submittedAt],
+      ['Part Name', (application) => application.partName],
+      ['Supplier', (application) => application.supplier],
+      ['Supplier SAP Code', (application) => application.supplierSapCode],
+      ['Supplier Part Code', (application) => application.supplierPartCode],
+      ['Standard Price', (application) => application.standardPrice],
+      ['Price Effective Date', (application) => application.priceEffectiveDate],
+      ['Status', (application) => application.status],
+      ['Part Code', () => ''],
+    ];
+    const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      columns.map(([heading]) => csvCell(heading)).join(','),
+      ...mingHuPendingApplications.map((application) => columns.map(([, value]) => csvCell(value(application))).join(',')),
+    ].join('\r\n');
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ming-hu-pending-applications-${todayDateString()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const uploadMingHuCompletedList = async (file: File) => {
+    try {
+      const text = await file.text();
+      const rows = text.split(/\r?\n/).filter((row) => row.trim()).map(parseCsvLine);
+      const headers = rows[0]?.map((header) => header.replace(/^\uFEFF/, '').trim().toLocaleLowerCase()) || [];
+      const applicationIdIndex = headers.indexOf('application id');
+      const partCodeIndex = headers.indexOf('part code');
+      if (applicationIdIndex < 0 || partCodeIndex < 0) {
+        throw new Error('The file must be the downloaded ming hu pending CSV with Application ID and Part Code columns.');
+      }
+
+      const pendingById = new Map(mingHuPendingApplications.map((application) => [application.id, application]));
+      const completedRows = rows.slice(1).map((row, index) => ({
+        rowNumber: index + 2,
+        applicationId: row[applicationIdIndex]?.trim() || '',
+        partCode: row[partCodeIndex]?.trim() || '',
+      })).filter((row) => row.applicationId || row.partCode);
+      const invalidRow = completedRows.find((row) => !row.applicationId || !row.partCode || !pendingById.has(row.applicationId));
+      if (invalidRow) throw new Error(`Row ${invalidRow.rowNumber} has a missing Part Code or is not a pending ming hu application.`);
+      if (completedRows.length === 0) throw new Error('No completed Part Code rows were found.');
+
+      const duplicatePartCode = completedRows.find((row, index) => completedRows.findIndex((candidate) => candidate.partCode.toLocaleLowerCase() === row.partCode.toLocaleLowerCase()) !== index);
+      if (duplicatePartCode) throw new Error(`Part Code ${duplicatePartCode.partCode} appears more than once.`);
+      if (!window.confirm(`Complete ${completedRows.length} applications using the uploaded Part Codes?`)) return;
+
+      setIsSubmitting(true);
+      let failedEmailCount = 0;
+      for (const row of completedRows) {
+        const application = pendingById.get(row.applicationId)!;
+        const partImageUrl = await FirebaseService.approvePartApplication(application.id, row.partCode);
+        try {
+          await sendCompletionEmail(application, row.partCode, partImageUrl || application.imageUrl);
+        } catch (emailError) {
+          failedEmailCount += 1;
+          console.error(`Application ${application.id} completion email failed:`, emailError);
+        }
+      }
+      await loadApplications();
+      showMessage(
+        failedEmailCount ? 'error' : 'success',
+        `${completedRows.length} applications were completed.${failedEmailCount ? ` ${failedEmailCount} completion email(s) failed.` : ' Completion emails were sent.'}`,
+      );
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : 'The completed list could not be uploaded.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBulkApproveMingHu = async () => {
+    const count = mingHuAwaitingApplications.length;
+    if (count === 0) {
+      showMessage('error', 'There are no applications from ming hu awaiting manager approval.');
+      return;
+    }
+
+    if (!window.confirm(`Approve all ${count} applications requested by ming hu?`)) return;
+
+    setIsSubmitting(true);
+    try {
+      await FirebaseService.bulkApprovePartApplicationsByManager(
+        mingHuAwaitingApplications.map((application) => application.id),
+        'Bulk approved from Application List',
+      );
+      await loadApplications();
+      showMessage('success', `${count} applications requested by ming hu were approved.`);
+    } catch (error) {
+      console.error('Error bulk approving ming hu applications:', error);
+      showMessage('error', 'Failed to approve applications requested by ming hu.');
     } finally {
       setIsSubmitting(false);
     }
@@ -2207,6 +2356,34 @@ export default function PartApplicationPage() {
                   <p className="text-xl font-bold text-green-700">{approvedApplications.length}</p>
                 </button>
               </div>
+
+              {mingHuAwaitingApplications.length > 0 && (
+                <Button
+                  type="button"
+                  onClick={handleBulkApproveMingHu}
+                  disabled={isSubmitting}
+                  className="mb-4 w-full bg-violet-700 hover:bg-violet-800"
+                >
+                  {isSubmitting ? <LoadingSpinner size="sm" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                  <span className={isSubmitting ? 'ml-2' : ''}>
+                    Approve all {mingHuAwaitingApplications.length} requested by ming hu
+                  </span>
+                </Button>
+              )}
+
+              {mingHuPendingApplications.length > 0 && (
+                <div className="mb-4 grid gap-2 sm:grid-cols-2">
+                  <Button type="button" variant="outline" onClick={downloadMingHuPendingList} className="border-blue-300 text-blue-700 hover:bg-blue-50">
+                    <Download className="mr-2 h-4 w-4" />
+                    Download pending list ({mingHuPendingApplications.length})
+                  </Button>
+                  <Label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md border border-green-300 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50">
+                    <Upload className="mr-2 h-4 w-4" />
+                    Upload completed list
+                    <Input type="file" accept=".csv,text/csv" className="hidden" disabled={isSubmitting} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadMingHuCompletedList(file); event.currentTarget.value = ''; }} />
+                  </Label>
+                </div>
+              )}
 
               {loading ? (
                 <div className="text-center py-8">
