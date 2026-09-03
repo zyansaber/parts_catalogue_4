@@ -1,5 +1,5 @@
 import { database, storage } from '@/lib/firebase';
-import { ref, get, push, set, query, orderByChild, limitToFirst, startAt } from 'firebase/database';
+import { ref, get, push, set, update, query, orderByChild, limitToFirst, startAt } from 'firebase/database';
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Part, BoMComponent, PartApplication } from '@/types';
 
@@ -549,6 +549,21 @@ export class FirebaseService {
     };
     await set(appRef, approved);
     return { id: applicationId, ...approved };
+  }
+
+  static async bulkApprovePartApplicationsByManager(applicationIds: string[], signature: string): Promise<void> {
+    if (applicationIds.length === 0) return;
+
+    const approvedAt = new Date().toISOString();
+    const updates = applicationIds.reduce<Record<string, string>>((paths, applicationId) => {
+      paths[`partApplications/${applicationId}/status`] = 'pending';
+      paths[`partApplications/${applicationId}/managerApprovedAt`] = approvedAt;
+      paths[`partApplications/${applicationId}/managerSignature`] = signature;
+      paths[`partApplications/${applicationId}/managerApprovalToken`] = '';
+      return paths;
+    }, {});
+
+    await update(ref(database), updates);
   }
 
   static async approvePartApplication(applicationId: string, partCode: string, replacementImageUrl = ''): Promise<string> {
