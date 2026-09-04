@@ -17,6 +17,7 @@ import { getLang, resolvePartDescription, t, type Lang } from '@/lib/i18n';
 
 export default function PartsCataloguePage() {
   const [allParts, setAllParts] = useState<Record<string, Part>>({});
+  const [hiddenParts, setHiddenParts] = useState<Set<string>>(new Set());
   const [displayedParts, setDisplayedParts] = useState<Record<string, Part>>({});
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,10 +45,14 @@ export default function PartsCataloguePage() {
       
       try {
         // Always search the entire database - use getAllParts for complete data
-        const partsData = debouncedSearchTerm 
-          ? await FirebaseService.searchParts(debouncedSearchTerm, 10000) // Increase limit for search
-          : await FirebaseService.getAllParts(); // Get all parts when no search term
+        const [partsData, hiddenMaterials] = await Promise.all([
+          debouncedSearchTerm
+            ? FirebaseService.searchParts(debouncedSearchTerm, 10000) // Increase limit for search
+            : FirebaseService.getAllParts(), // Get all parts when no search term
+          FirebaseService.getCatalogueHiddenParts(),
+        ]);
         setAllParts(partsData);
+        setHiddenParts(new Set(hiddenMaterials.map((material) => material.toUpperCase())));
       } catch (error) {
         console.error('Error loading parts:', error);
       } finally {
@@ -75,7 +80,7 @@ export default function PartsCataloguePage() {
 
   const filteredAndSortedParts = useMemo(() => {
     const filtered = Object.entries(allParts).filter(([material, part]) => {
-      const isHidden = part.show_in_catalogue === false;
+      const isHidden = part.show_in_catalogue === false || hiddenParts.has(material.toUpperCase());
       if (isHidden) return false;
       
       // Supplier filter
@@ -100,7 +105,7 @@ export default function PartsCataloguePage() {
     });
 
     return filtered;
-  }, [allParts, selectedSupplier, sortBy, showInStockOnly]);
+  }, [allParts, hiddenParts, selectedSupplier, sortBy, showInStockOnly]);
 
   // Handle pagination
   useEffect(() => {

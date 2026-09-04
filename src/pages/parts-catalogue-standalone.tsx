@@ -21,6 +21,7 @@ import { resolvePartDescription, type Lang } from '@/lib/i18n';
 
 export default function PartsCatalogueStandalonePage() {
   const [allParts, setAllParts] = useState<Record<string, Part>>({});
+  const [hiddenParts, setHiddenParts] = useState<Set<string>>(new Set());
   const [displayedParts, setDisplayedParts] = useState<Record<string, Part>>({});
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -49,10 +50,14 @@ export default function PartsCatalogueStandalonePage() {
         setLoading(true);
       }
       try {
-        const partsData = debouncedSearchTerm
-          ? await FirebaseService.searchParts(debouncedSearchTerm, 10000)
-          : await FirebaseService.getAllParts();
+        const [partsData, hiddenMaterials] = await Promise.all([
+          debouncedSearchTerm
+            ? FirebaseService.searchParts(debouncedSearchTerm, 10000)
+            : FirebaseService.getAllParts(),
+          FirebaseService.getCatalogueHiddenParts(),
+        ]);
         setAllParts(partsData);
+        setHiddenParts(new Set(hiddenMaterials.map((material) => material.toUpperCase())));
       } catch (error) {
         console.error('Error loading parts:', error);
       } finally {
@@ -69,7 +74,7 @@ export default function PartsCatalogueStandalonePage() {
 
   const filteredAndSortedParts = useMemo(() => {
     const filtered = Object.entries(allParts).filter(([material, part]) => {
-      if (part.show_in_catalogue === false) return false;
+      if (part.show_in_catalogue === false || hiddenParts.has(material.toUpperCase())) return false;
       const searchLower = debouncedSearchTerm.toLowerCase();
       const matchesSearch = !searchLower ||
         material.toLowerCase().includes(searchLower) ||
@@ -88,7 +93,7 @@ export default function PartsCatalogueStandalonePage() {
     });
 
     return filtered;
-  }, [allParts, debouncedSearchTerm, sortBy, showInStockOnly]);
+  }, [allParts, hiddenParts, debouncedSearchTerm, sortBy, showInStockOnly]);
 
 
 
