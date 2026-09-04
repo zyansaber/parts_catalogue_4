@@ -14,6 +14,28 @@ const DEFAULT_R2_SECRET_KEY = '16ca6a9e8ed4a55b6b02cff6f1c2bf3982c59910aa41aeec6
 const DEFAULT_R2_BUCKET = 'parts';
 
 export class FirebaseService {
+  static parseCatalogueHiddenParts(value: unknown): string[] {
+    const rawValues = Array.isArray(value)
+      ? value
+      : typeof value === 'string'
+        ? value.split(/[\s,;]+/)
+        : [];
+
+    return Array.from(new Set(
+      rawValues.map((material) => String(material).trim()).filter(Boolean),
+    ));
+  }
+
+  static async getCatalogueHiddenParts(): Promise<string[]> {
+    try {
+      const snapshot = await get(ref(database, 'app_admin/catalogue_hidden_parts'));
+      return this.parseCatalogueHiddenParts(snapshot.val());
+    } catch (error) {
+      console.error('Error fetching catalogue hidden parts:', error);
+      return [];
+    }
+  }
+
   private static getR2Config() {
     const endpoint = (import.meta.env.VITE_R2_ENDPOINT || DEFAULT_R2_ENDPOINT).trim().replace(/\/+$/, '');
     const accessKeyId = (import.meta.env.VITE_R2_ACCESS_KEY || DEFAULT_R2_ACCESS_KEY).trim();
