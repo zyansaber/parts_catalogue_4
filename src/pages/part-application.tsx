@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FileText, Download, Plus, Eye, CheckCircle, Image, XCircle, AlertTriangle, Printer, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -173,6 +173,7 @@ export default function PartApplicationPage() {
   const [foundPart, setFoundPart] = useState<Part | null>(null);
   const [isLookingUpPart, setIsLookingUpPart] = useState(false);
   const [partLookupStatus, setPartLookupStatus] = useState('');
+  const partLookupRequestId = useRef(0);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -578,11 +579,9 @@ export default function PartApplicationPage() {
 
 
 
-  const lookupPartForChange = async (partCodeValue: string) => {
+  const lookupPartForChange = async (partCodeValue: string, requestId: number) => {
     const code = partCodeValue.trim();
     if (!code) {
-      setFoundPart(null);
-      setPartLookupStatus('');
       return;
     }
 
@@ -593,11 +592,14 @@ export default function PartApplicationPage() {
 
       if (!part) {
         const searchResults = await FirebaseService.searchParts(code, 20);
-        const matchedEntry = Object.entries(searchResults).find(([material, item]) => material.toLowerCase() === code.toLowerCase() || item.Material?.toLowerCase() === code.toLowerCase())
-          || Object.entries(searchResults)[0];
+        const normalizedCode = code.toLowerCase();
+        const matchedEntry = Object.entries(searchResults).find(([material, item]) =>
+          material.trim().toLowerCase() === normalizedCode || item.Material?.trim().toLowerCase() === normalizedCode
+        );
         part = matchedEntry?.[1] || null;
       }
 
+      if (requestId !== partLookupRequestId.current) return;
       setFoundPart(part);
       if (part) {
         setPartLookupStatus('Part found in catalogue. Current details are shown below.');
@@ -611,15 +613,33 @@ export default function PartApplicationPage() {
           unit: prev.unit,
         }));
       } else {
+        setFoundPart(null);
         setPartLookupStatus('Part not found in catalogue. Please fill Previous Price manually for Standard Price changes.');
       }
     } catch (error) {
+      if (requestId !== partLookupRequestId.current) return;
       console.error('Part lookup failed:', error);
       setFoundPart(null);
       setPartLookupStatus('Part lookup failed. Please try again or enter previous values manually.');
     } finally {
-      setIsLookingUpPart(false);
+      if (requestId === partLookupRequestId.current) setIsLookingUpPart(false);
     }
+  };
+
+  const handleChangePartCode = (value: string) => {
+    partLookupRequestId.current += 1;
+    setFoundPart(null);
+    setPartLookupStatus('');
+    setIsLookingUpPart(false);
+    setFormData(prev => ({
+      ...prev,
+      partCode: value,
+      partName: '',
+      originalSupplier: '',
+      originalPrice: '',
+      originalRetailPrice: '',
+      originalWholesalePrice: '',
+    }));
   };
 
   useEffect(() => {
@@ -630,10 +650,14 @@ export default function PartApplicationPage() {
       setPartLookupStatus('');
       return;
     }
+    const requestId = ++partLookupRequestId.current;
     const timer = window.setTimeout(() => {
-      lookupPartForChange(code);
+      lookupPartForChange(code, requestId);
     }, 350);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      if (partLookupRequestId.current === requestId) partLookupRequestId.current += 1;
+    };
   }, [formData.partCode, submissionMode]);
 
   const activeChangeFields = () => formData.changeFields.length ? formData.changeFields : (formData.changeField ? [formData.changeField] : []);
@@ -1840,7 +1864,7 @@ export default function PartApplicationPage() {
                       <div className="space-y-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
                         <div>
                           <Label htmlFor="changePartCode">Part Code *</Label>
-                          <Input id="changePartCode" value={formData.partCode} onChange={(e) => setFormData(prev => ({ ...prev, partCode: e.target.value }))} required />
+                          <Input id="changePartCode" value={formData.partCode} onChange={(e) => handleChangePartCode(e.target.value)} required />
                         </div>
                         {(isLookingUpPart || partLookupStatus) && <p className="text-xs text-purple-700">{isLookingUpPart ? 'Searching part catalogue...' : partLookupStatus}</p>}
                         {foundPart && (
