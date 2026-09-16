@@ -43,6 +43,11 @@ export interface ApplicationEmailPayload {
 
 const EMAILJS_ENDPOINT = 'https://api.emailjs.com/api/v1.0/email/send';
 const EMAILJS_TEMPLATE_ID = 'template_rij27hq';
+const MAILBOX_CONCURRENCY_RETRY_DELAYS_MS = [2_000, 4_000, 8_000];
+
+let emailSendQueue: Promise<void> = Promise.resolve();
+
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 
 const escapeHtml = (value: unknown) => String(value ?? 'N/A')
@@ -247,15 +252,12 @@ export class EmailService {
       throw new Error('EmailJS is not configured. Fill EmailJS Service ID and Public Key in /admin, or set VITE_EMAILJS_SERVICE_ID and VITE_EMAILJS_PUBLIC_KEY before rebuilding.');
     }
 
-    const response = await fetch(EMAILJS_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        service_id: serviceId,
-        template_id: EMAILJS_TEMPLATE_ID,
-        user_id: publicKey,
-        ...(privateKey ? { accessToken: privateKey } : {}),
-        template_params: {
+    const requestBody = JSON.stringify({
+      service_id: serviceId,
+      template_id: EMAILJS_TEMPLATE_ID,
+      user_id: publicKey,
+      ...(privateKey ? { accessToken: privateKey } : {}),
+      template_params: {
           email_title: buildEmailTitle(payload),
           email_body: buildEmailBody(payload),
           email_html: buildEmailHtml(payload),
@@ -298,13 +300,34 @@ export class EmailService {
           subject_prefix: payload.subjectPrefix || 'Part Application',
           subject: `${payload.subjectPrefix || 'Part Application'} - ${buildEmailTitle(payload)}`,
           message: buildEmailBody(payload),
-        },
-      }),
+      },
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`EmailJS send failed (${response.status}): ${text}`);
-    }
+    const send = async () => {
+      for (let attempt = 0; ; attempt += 1) {
+        const response = await fetch(EMAILJS_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+        });
+
+        if (response.ok) return;
+
+        const responseText = await response.text();
+        const isMailboxConcurrencyError = response.status === 412
+          && responseText.toLocaleLowerCase().includes('mailboxconcurrency');
+        const retryDelay = MAILBOX_CONCURRENCY_RETRY_DELAYS_MS[attempt];
+
+        if (!isMailboxConcurrencyError || retryDelay === undefined) {
+          throw new Error(`EmailJS send failed (${response.status}): ${responseText}`);
+        }
+
+        await wait(retryDelay);
+      }
+    };
+
+    const queuedSend = emailSendQueue.then(send, send);
+    emailSendQueue = queuedSend.catch(() => undefined);
+    return queuedSend;
   }
 }
