@@ -90,6 +90,9 @@ const detailRow = (label: string, value: unknown) => !hasUsefulValue(value) ? ''
   </tr>
 `;
 
+const emailLinkLabel = (action: string, payload: ApplicationEmailPayload) =>
+  `${action} — Part Name: ${payload.partName?.trim() || 'N/A'}`;
+
 const buildEmailHtml = (payload: ApplicationEmailPayload) => {
   const status = statusMeta(payload);
   const isPriceSupplierChange = payload.applicationType === 'price_supplier_change';
@@ -102,7 +105,7 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
     return `
       <div style="margin:0; padding:28px; background:#f3f4f6; font-family:Arial,sans-serif; color:#111827;">
         <div style="max-width:640px; margin:0 auto; padding:30px; background:#ffffff; border-radius:16px; box-shadow:0 10px 28px rgba(15,23,42,0.10);">
-          <a href="${escapeHtml(payload.approvalUrl)}" style="display:block; padding:18px 24px; border-radius:12px; background:#7c3aed; color:#ffffff; text-align:center; text-decoration:none; font-size:20px; font-weight:800;">Review and Sign</a>
+          <a href="${escapeHtml(payload.approvalUrl)}" style="display:block; padding:18px 24px; border-radius:12px; background:#7c3aed; color:#ffffff; text-align:center; text-decoration:none; font-size:20px; font-weight:800;">${escapeHtml(emailLinkLabel('Review and Sign', payload))}</a>
           <h1 style="margin:26px 0 8px; font-size:22px;">Manager approval required</h1>
           <p style="margin:0 0 20px; color:#4b5563; line-height:1.6;">${escapeHtml(payload.requesterName)} submitted a part application for your electronic approval.</p>
           <table style="width:100%; border-collapse:collapse; font-size:14px;"><tbody>
@@ -171,10 +174,10 @@ const buildEmailHtml = (payload: ApplicationEmailPayload) => {
           </div>` : ''}
 
           <div style="margin-top:22px; display:flex; gap:12px; flex-wrap:wrap;">
-            ${payload.approvalUrl ? `<a href="${escapeHtml(payload.approvalUrl)}" style="display:inline-block; padding:14px 22px; border-radius:10px; background:#7c3aed; color:#ffffff; text-decoration:none; font-size:16px; font-weight:800;">Review and Sign</a>` : ''}
-            ${payload.applicationFileUrl ? `<a href="${escapeHtml(payload.applicationFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#2563eb; color:#ffffff; text-decoration:none; font-weight:700;">Open Application File</a>` : ''}
-            ${payload.managerApprovalFileUrl ? `<a href="${escapeHtml(payload.managerApprovalFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#7c3aed; color:#ffffff; text-decoration:none; font-weight:700;">Open Manager Approval</a>` : ''}
-            ${payload.imageUrl ? `<a href="${escapeHtml(payload.imageUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700;">Open Part Image</a>` : ''}
+            ${payload.approvalUrl ? `<a href="${escapeHtml(payload.approvalUrl)}" style="display:inline-block; padding:14px 22px; border-radius:10px; background:#7c3aed; color:#ffffff; text-decoration:none; font-size:16px; font-weight:800;">${escapeHtml(emailLinkLabel('Review and Sign', payload))}</a>` : ''}
+            ${payload.applicationFileUrl ? `<a href="${escapeHtml(payload.applicationFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#2563eb; color:#ffffff; text-decoration:none; font-weight:700;">${escapeHtml(emailLinkLabel('Open Application File', payload))}</a>` : ''}
+            ${payload.managerApprovalFileUrl ? `<a href="${escapeHtml(payload.managerApprovalFileUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#7c3aed; color:#ffffff; text-decoration:none; font-weight:700;">${escapeHtml(emailLinkLabel('Open Manager Approval', payload))}</a>` : ''}
+            ${payload.imageUrl ? `<a href="${escapeHtml(payload.imageUrl)}" style="display:inline-block; padding:10px 14px; border-radius:10px; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700;">${escapeHtml(emailLinkLabel('Open Part Image', payload))}</a>` : ''}
           </div>
         </div>
 
@@ -232,11 +235,11 @@ const buildEmailBody = (payload: ApplicationEmailPayload) => {
   addLine('Specifications', payload.specifications);
   addLine('Notes', payload.notes);
   addLine('Rejection Reason', payload.rejectionReason);
-  addLine('Application File', payload.applicationFileUrl);
-  addLine('Manager Approval', payload.managerApprovalFileUrl);
+  addLine(emailLinkLabel('Application File', payload), payload.applicationFileUrl);
+  addLine(emailLinkLabel('Manager Approval', payload), payload.managerApprovalFileUrl);
   addLine('Manager', payload.managerName);
-  addLine('Review and Sign', payload.approvalUrl);
-  addLine('Image URL', payload.imageUrl);
+  addLine(emailLinkLabel('Review and Sign', payload), payload.approvalUrl);
+  addLine(emailLinkLabel('Image URL', payload), payload.imageUrl);
   addLine('Submitted At', payload.submittedAt || new Date().toISOString(), true);
 
   return lines.join('\n');
